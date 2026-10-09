@@ -15,14 +15,14 @@ Android phone forwards the SMS → Windows detects the code → writes it to the
 [![License](https://img.shields.io/badge/License-MIT-2f75f0)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/Murciee/codepass?style=social)](https://github.com/Murciee/codepass/stargazers)
 
-[Quick Start](#quick-start-lan-mode) · [Recommended Setup](#recommended-setup) · [Public Network](#public-network-ntfy) · [Building](#building) · [FAQ](#faq) · [Documentation](#documentation-index)
+[Downloads](#downloads) · [Quick Start](#quick-start-lan-mode) · [Recommended Setup](#recommended-setup) · [Public Network](#public-network-ntfy) · [Building](#building) · [FAQ](#faq) · [Documentation](#documentation-index)
 
 [简体中文](README.md) · **English**
 
 </div>
 
 > [!WARNING]
-> No support is provided, and compatibility or ongoing maintenance is not promised. The Windows package is not code-signed, and unsigned APKs cannot be installed directly. Read the [Disclaimer](DISCLAIMER.md) and [Privacy Notice](PRIVACY.md) before use.
+> No support is provided, and compatibility or ongoing maintenance is not promised. The Windows package is not code-signed. The LSPosed release APK uses a fixed release certificate; debug and unsigned APKs are not release assets. Read the [Disclaimer](DISCLAIMER.md) and [Privacy Notice](PRIVACY.md) before use.
 
 ```text
 New Android SMS → LAN / EasyTier / ntfy → Windows detects the code → clipboard
@@ -46,6 +46,25 @@ New Android SMS → LAN / EasyTier / ntfy → Windows detects the code → clipb
 | 📱 Multiple phone options | No-root Webhook, root script, Magisk, LSPosed — pick one |
 | 🎨 Interface | Native Fluent rounded UI on Windows; lightweight WebUI for Magisk |
 
+## Downloads
+
+The current source version is **v1.0.3**. Download installers from [GitHub Releases](https://github.com/Murciee/codepass/releases); only assets actually published there are available. A source commit is not a published release.
+
+| Asset | Purpose |
+| --- | --- |
+| `codepass-windows.zip` | Native Windows client; extract and run `codepass.exe`, with no extra runtime installation |
+| `codepass-sms-magisk.zip` | Module for phones with Magisk already installed |
+| `codepass-lsposed-release.apk` | Release-signed native module for phones with LSPosed already installed |
+| `SHA256SUMS.txt` | SHA-256 checksums of the three assets; checksums do not replace signature or source verification |
+
+Choose one phone option, not both modules. The `release/` directory is excluded from source commits; installers are uploaded separately as release assets.
+
+**Upgrading:** quit Windows from the tray, replace only `codepass.exe`, and keep your configuration and history. Switching from a debug APK usually requires uninstalling it first and loses app configuration. The new LSPosed module no longer reads the old `lsposed.conf`; enter settings in the app.
+
+### Validation limits
+
+Native builds, 23 synthetic HTTP/security tests, WPF view parsing, APK signature/alignment verification, and an independent read-only code review passed. Device installation, actual SMS hooks, lock-screen/reboot behavior, and Magisk installation still require device testing; compatibility with every ROM is not promised.
+
 ## Recommended Setup
 
 Most users should use “LAN + no-root Webhook”: simple, low latency, no root required.
@@ -61,7 +80,7 @@ Enable only one option to avoid duplicate messages.
 
 ## Quick Start: LAN Mode
 
-1. **Windows**: run `codepass.exe` (single file; config lives next to the EXE). On first launch allow “Private networks” if the firewall asks. On the Settings page click “Detect local address” to note the IPv4 address, and set a random “Access token”.
+1. **Windows**: run `codepass.exe` (single file; config lives next to the EXE). Set a random access token, select the PC IPv4 using “Detect local address”, then quit from the tray and restart. Allow “Private networks” if the firewall asks.
 2. **Phone**: Webhook target `http://PC-IPv4:8787/sms`, method `POST`, body = the SMS body variable; pass the token in the `X-Token` header or a `?token=` parameter.
 3. **Verify**: click “Test connectivity”, then send a test SMS — the detected code is written to the clipboard and shown on the history page.
 
@@ -70,7 +89,7 @@ http://PC-IPv4:8787/sms
 X-Token: your-token
 ```
 
-> Closing the window only hides it to the tray; reception keeps running. To fully exit, right-click the tray icon. The port and ntfy apply on restart; the access token applies immediately.
+> Closing the window hides it to the tray. Restart after changing the bound address, port, ntfy, or whether a token is set. Replacing an existing token applies immediately; clearing it immediately rejects LAN requests.
 
 ## Windows Settings
 
@@ -83,14 +102,14 @@ X-Token: your-token
 | Desktop notification / privacy | Whether to notify, and three levels of notification masking |
 | Message filter | Line-by-line keywords or .NET regex; a match ignores that SMS |
 | Program passcode lock | Protects settings and history, with optional auto-lock |
-| About & update check | Version, GitHub page, and update check (downloads and applies on restart) |
+| About & update check | Version and GitHub page; opens the download page for manual updates |
 | ntfy settings | Server, topic, and token for public-network relay |
 
-Notes: fields save on blur or Enter; the token, code length, and notification content apply immediately, while the port and ntfy apply on next launch. Data files `config.ini` / `history.txt` / `app.log` live next to the EXE.
+Notes: fields save on blur or Enter. Code length, notification content, and replacing an existing token apply immediately. Restart after changing the bound address, port, ntfy, or whether a token is set. Data files live next to the EXE.
 
 ## Public Network: ntfy
 
-When the phone and PC are not on the same network, relay through ntfy: enter the same server, topic, and token on Windows and the phone, then quit from the tray and restart. Prefer a self-hosted or HTTPS service and an unguessable topic. See [`phone/ntfy.md`](phone/ntfy.md).
+When the phone and PC are not on the same network, enter the same HTTPS server, topic, and token on both devices, then restart Windows. Prefer a private authenticated service; a public topic name is not reliable access control. See [`phone/ntfy.md`](phone/ntfy.md).
 
 ## Network Interface
 
@@ -111,7 +130,7 @@ Pass the token via the `X-Token` header or `?token=`. When a token is set, both 
 
 ## Security and Risk
 
-- Always set a random access token; an empty token leaves the LAN interface unauthenticated, and never expose it to the internet;
+- LAN reception requires a random access token. An empty token binds only to loopback; never expose the port to the internet;
 - Never commit the ntfy topic or token to a public repository; the server must use HTTPS;
 - `app.log`, `history.txt`, and phone config may contain codes or tokens — protect them;
 - The passcode lock protects the UI only and does not encrypt local data; masking is not full privacy protection.
@@ -122,11 +141,11 @@ Pass the token via the `X-Token` header or `?token=`. When a token is set, both 
 
 | Target | Command | Artifact |
 | --- | --- | --- |
-| Windows native single file | `windows\build.ps1 -Legacy` | `windows/dist/codepass.exe` |
-| LSPosed native fallback | `phone\lsposed\build.ps1 -Legacy` | `release/codepass-lsposed-debug.apk` |
+| Windows native single file | `windows\build.ps1` | `windows/dist/codepass.exe` |
+| LSPosed native module (development test) | `phone\lsposed\build.ps1` | `phone/lsposed/app/build/outputs/apk/debug/app-debug.apk` |
 | Magisk module | `phone\magisk\build.ps1` | `release/codepass-sms-magisk.zip` |
 
-LSPosed release build: add `-Release` to produce an unsigned APK, then sign it with `-SignAndroid -AndroidKeystore <file> -AndroidKeyAlias <alias>` and the `CODEPASS_ANDROID_STORE_PASSWORD` / `CODEPASS_ANDROID_KEY_PASSWORD` environment variables, producing `release/codepass-lsposed-release.apk`. The build environment is provided via `JAVA_HOME`, `ANDROID_HOME`, etc. See [`docs/BUILD_ANDROID.md`](docs/BUILD_ANDROID.md).
+LSPosed release build: use `-Release -SignAndroid -AndroidKeystore <file> -AndroidKeyAlias <alias>` with the `CODEPASS_ANDROID_STORE_PASSWORD` / `CODEPASS_ANDROID_KEY_PASSWORD` environment variables, producing `release/codepass-lsposed-release.apk`. The build environment is provided via `JAVA_HOME`, `ANDROID_HOME`, etc. See [`docs/BUILD_ANDROID.md`](docs/BUILD_ANDROID.md).
 
 ## Repository Layout
 
@@ -136,7 +155,7 @@ release/  Release artifacts                              docs/   Release / build
 tools/    Pre-release check scripts                      assets/ Images for docs and UI
 ```
 
-Historical Flutter / Rust implementations and old artifacts live in the local `archive/` (not shipped).
+Only the currently maintained native Windows client, Magisk module, and native LSPosed module are retained.
 
 ## Documentation Index
 

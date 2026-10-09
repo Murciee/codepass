@@ -42,7 +42,7 @@
     <label for="NTFY_SERVER">服务器地址</label><input id="NTFY_SERVER" value="https://ntfy.sh" placeholder="https://ntfy.example.com" autocomplete="off" spellcheck="false">
     <label for="NTFY_TOPIC">主题名称</label><input id="NTFY_TOPIC" placeholder="长随机主题名" autocomplete="off" spellcheck="false">
     <label for="NTFY_TOKEN">访问令牌</label><input id="NTFY_TOKEN" type="password" placeholder="私有服务器使用" autocomplete="off">
-    <p class="hint">只使用局域网时，主题和令牌都留空。公共主题名相当于密码，请使用长随机字符串。</p>
+    <p class="hint">服务器必须使用 HTTPS。只使用局域网时，主题和令牌都留空。公共主题名不是可靠的访问控制，应优先使用带身份认证的私有服务。</p>
   </section>
   <section>
     <h2>识别设置</h2>
@@ -67,7 +67,7 @@
   function fill(data){ keys.forEach(k=>document.getElementById(k).value=data[k] ?? defaults[k]); }
   function message(s,ok=true){ const el=document.getElementById('status'); el.style.color=ok?'var(--ok)':'var(--error)'; el.textContent=s; }
   function load(){ let data={...defaults}; try { if(fs&&fs.readTextSync) data=parse(fs.readTextSync(path())); } catch(e){ data={...defaults}; } fill(data); }
-  document.getElementById('save').onclick=()=>{ const t=text(); try { if(fs&&fs.writeTextSync){ if(fs.mkdirsSync) fs.mkdirsSync(base()+'/codepass-sms'); fs.writeTextSync(path(),t); const locked=!!fs.chmodSync; if(locked) fs.chmodSync(path(),parseInt('600',8)); message('配置已保存'+(locked?'（权限 0600）。':'。请确认管理器已限制配置文件权限。')+'重启手机后生效。'); } else { message('当前管理器不提供 root 文件接口，配置未保存。请使用支持的管理器或手动导入配置。',false); } } catch(e){ message('配置保存失败，请检查 root 授权与文件访问权限。',false); } };
+  document.getElementById('save').onclick=()=>{ if(document.getElementById('NTFY_TOPIC').value.trim()){ try { const u=new URL(document.getElementById('NTFY_SERVER').value.trim()); if(u.protocol!=='https:'||u.username||u.password) throw new Error(); } catch(e){ message('配置未保存：ntfy 服务器必须是有效的 HTTPS 地址。',false); return; } } const t=text(); try { if(fs&&fs.writeTextSync){ if(fs.mkdirsSync) fs.mkdirsSync(base()+'/codepass-sms'); fs.writeTextSync(path(),t); const locked=!!fs.chmodSync; if(locked) fs.chmodSync(path(),parseInt('600',8)); message('配置已保存'+(locked?'（权限 0600）。':'。请确认管理器已限制配置文件权限。')+'重启手机后生效。'); } else { message('当前管理器不提供 root 文件接口，配置未保存。请使用支持的管理器或手动导入配置。',false); } } catch(e){ message('配置保存失败，请检查 root 授权与文件访问权限。',false); } };
   document.getElementById('copy').onclick=async()=>{ const t=text(); try { await navigator.clipboard.writeText(t); message('配置文本已复制。'); } catch(e){ message('复制失败，请使用页面中的字段手动填写配置。',false); } };
   load();
 </script>

@@ -59,22 +59,23 @@ public final class ConfigProvider extends ContentProvider {
 
     private static volatile SharedPreferences sharedPrefs;
 
-    /**
-     * 进程内第一次获取 prefs 时尝试 MODE_WORLD_READABLE(1)：在 LSPosed 中把本应用勾入
-     * 自身作用域（并声明 xposedsharedprefs）后系统放行，电话进程可直接读取该文件；
-     * 未勾选时原生 N+ 抛 SecurityException，回退私有模式，配置仍通过本 Provider 提供。
-     * 读取与保存必须都走本方法，保证进程内首次获取就是 mode=1（实例缓存后模式不再生效）。
-     */
+    /** 仅使用私有偏好文件；电话进程通过受 UID 限制的 Provider 读取。 */
     public static SharedPreferences appPrefs(Context context) {
         SharedPreferences result = sharedPrefs;
         if (result == null) {
             synchronized (ConfigProvider.class) {
                 result = sharedPrefs;
                 if (result == null) {
-                    try {
-                        result = context.getSharedPreferences(PREFS_NAME, 1);
-                    } catch (Exception e) {
-                        result = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                    result = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                    // 升级时收紧旧版本可能留下的 world-readable 文件权限。
+                    java.io.File file = new java.io.File(context.getApplicationInfo().dataDir,
+                            "shared_prefs/" + PREFS_NAME + ".xml");
+                    if (file.exists()) {
+                        try {
+                            android.system.Os.chmod(file.getAbsolutePath(), 0600);
+                        } catch (android.system.ErrnoException e) {
+                            throw new IllegalStateException("Cannot protect configuration file", e);
+                        }
                     }
                     sharedPrefs = result;
                 }

@@ -7,10 +7,6 @@ import android.os.Bundle;
 import android.telephony.SmsMessage;
 import android.provider.Telephony;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -24,7 +20,6 @@ import java.util.concurrent.Executors;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
@@ -33,19 +28,13 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
  * Legacy Xposed entry point. The legacy API is intentionally used here because
  * it is available on both older LSPosed installations and current LSPosed.
  *
- * 配置读取按顺序尝试三条通道，取第一个包含可转发目标（PC_IP、PC2_IP 或 NTFY_TOPIC 非空）的配置：
- * 1. ConfigProvider（应用内 ContentProvider，读取来源不依赖把本应用勾入作用域）；
- * 2. XSharedPreferences（需要在 LSPosed 中把本应用勾入模块作用域，并使用 MODE_WORLD_READABLE 保存）；
- * 3. /data/adb/codepass-sms/lsposed.conf（旧版文件，保留兼容）。
- * 三个通道都没有可用目标时保留第一个读到的结果（长度等设置仍生效），转发时记录 no target。
+ * 配置仅通过受 UID 限制的 ConfigProvider 读取；读取失败即停止转发。
+ * 清空全部目标并保存后不再回退到旧共享偏好或文件，防止短信继续发往旧目标。
  */
 public final class CodepassModule implements IXposedHookLoadPackage {
     private static final String TAG = "codepass-lsposed";
     private static final String PHONE_PACKAGE = "com.android.phone";
-    private static final String CONFIG_PATH = "/data/adb/codepass-sms/lsposed.conf";
     private static final String SMS_DELIVER_ACTION = "android.provider.Telephony.SMS_DELIVER";
-    private static final String PREFS_PACKAGE = "com.codepass.lsposed";
-    private static final String PREFS_FILE = "codepass";
     // 与 ConfigProvider.CONFIG_KEYS 保持一致（跨进程各自持有副本，修改时需同步）。
     private static final String[] CONFIG_KEYS = {
             "PC_IP", "PC_PORT", "TOKEN", "PC2_IP", "PC2_PORT", "PC2_TOKEN", "NTFY_SERVER", "NTFY_TOPIC", "NTFY_TOKEN", "MIN_LEN", "MAX_LEN"};
@@ -329,7 +318,11 @@ public final class CodepassModule implements IXposedHookLoadPackage {
         }
         if (config.ntfyTopic.length() > 0) {
             String server = trimTrailingSlash(config.ntfyServer);
-            post("ntfy", server + "/" + config.ntfyTopic, text, "", config.ntfyToken, sender);
+            if (isHttpsEndpoint(server)) {
+                post("ntfy", server + "/" + config.ntfyTopic, text, "", config.ntfyToken, sender);
+            } else {
+                XposedBridge.log(TAG + ": ntfy disabled because server is not HTTPS");
+            }
         }
     }
 
@@ -346,6 +339,7 @@ public final class CodepassModule implements IXposedHookLoadPackage {
         try {
             byte[] payload = body.getBytes(Charset.forName("UTF-8"));
             connection = (HttpURLConnection) new URL(target).openConnection();
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
@@ -374,7 +368,7 @@ public final class CodepassModule implements IXposedHookLoadPackage {
             int httpCode = connection.getResponseCode();
             XposedBridge.log(TAG + ": forward " + kind + " http=" + httpCode);
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": forward " + kind + " failed: " + t);
+            XposedBridge.log(TAG + ": forward " + kind + " failed: " + t.getClass().getSimpleName());
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -397,6 +391,16 @@ public final class CodepassModule implements IXposedHookLoadPackage {
             result = result.substring(0, result.length() - 1);
         }
         return result;
+    }
+
+    private static boolean isHttpsEndpoint(String value) {
+        try {
+            URL url = new URL(value);
+            return url.getProtocol().equalsIgnoreCase("https")
+                    && url.getHost().length() > 0 && url.getUserInfo() == null;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static Context currentContext() {
@@ -456,43 +460,10 @@ public final class CodepassModule implements IXposedHookLoadPackage {
 
         static Config load() {
             Map<String, String> provider = loadFromProvider();
-            if (usableTarget(provider)) {
+            if (provider != null) {
                 return new Config(provider, "provider");
             }
-            Map<String, String> xsp = loadFromXSharedPreferences();
-            if (usableTarget(xsp)) {
-                return new Config(xsp, "xsp");
-            }
-            Map<String, String> file = loadFromFile();
-            if (usableTarget(file)) {
-                return new Config(file, "file");
-            }
-            // 只有所有通道都读不到可转发目标（例如尚未保存过配置、旧文件也不存在）时才到达这里；
-            // 注意：App 里清空目标后若旧文件仍有目标，会继续走 file 通道使用旧目标（有意的兼容兜底）。
-            // 这里保留第一个读到的一份，让长度等设置仍生效；forward() 会记录 no target。
-            if (provider != null) {
-                return new Config(provider, "provider(no target)");
-            }
-            if (xsp != null) {
-                return new Config(xsp, "xsp(no target)");
-            }
-            if (file != null) {
-                return new Config(file, "file(no target)");
-            }
             return new Config(new HashMap<String, String>(), "none");
-        }
-
-        /** 只有 PC_IP、PC2_IP 或 NTFY_TOPIC 非空才算“这个通道有可用的转发目标”，否则继续尝试下一通道。 */
-        private static boolean usableTarget(Map<String, String> values) {
-            if (values == null) {
-                return false;
-            }
-            String pcIp = values.get("PC_IP");
-            String pc2Ip = values.get("PC2_IP");
-            String ntfyTopic = values.get("NTFY_TOPIC");
-            return (pcIp != null && pcIp.trim().length() > 0)
-                    || (pc2Ip != null && pc2Ip.trim().length() > 0)
-                    || (ntfyTopic != null && ntfyTopic.trim().length() > 0);
         }
 
         private static Map<String, String> loadFromProvider() {
@@ -528,65 +499,6 @@ public final class CodepassModule implements IXposedHookLoadPackage {
                 XposedBridge.log(TAG + ": provider read failed: " + t);
                 return null;
             }
-        }
-
-        private static Map<String, String> loadFromXSharedPreferences() {
-            try {
-                XSharedPreferences prefs = new XSharedPreferences(PREFS_PACKAGE, PREFS_FILE);
-                boolean present = prefs.contains("PC_IP") || prefs.contains("PC_PORT") || prefs.contains("PC2_IP") || prefs.contains("NTFY_TOPIC");
-                if (!present) {
-                    XposedBridge.log(TAG + ": xsp empty, file=" + prefs.getFile().getAbsolutePath());
-                    return null;
-                }
-                Map<String, String> values = new HashMap<String, String>();
-                for (String key : CONFIG_KEYS) {
-                    values.put(key, prefs.getString(key, ""));
-                }
-                return values;
-            } catch (Throwable t) {
-                XposedBridge.log(TAG + ": xsp read failed: " + t);
-                return null;
-            }
-        }
-
-        private static Map<String, String> loadFromFile() {
-            File file = new File(CONFIG_PATH);
-            if (!file.isFile()) {
-                return null;
-            }
-
-            Map<String, String> values = new HashMap<String, String>();
-            BufferedReader reader = null;
-            try {
-                reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    line = line.trim();
-                    if (line.length() == 0 || line.startsWith("#")) {
-                        continue;
-                    }
-                    int split = line.indexOf('=');
-                    if (split <= 0) {
-                        continue;
-                    }
-                    String key = line.substring(0, split).trim();
-                    String value = line.substring(split + 1).trim();
-                    if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
-                        value = value.substring(1, value.length() - 1);
-                    }
-                    values.put(key, value.replaceAll("\\\\([\\\\\"$`])", "$1"));
-                }
-            } catch (Throwable t) {
-                XposedBridge.log(TAG + ": cannot read config file: " + t);
-            } finally {
-                if (reader != null) {
-                    try {
-                        reader.close();
-                    } catch (Throwable ignored) {
-                    }
-                }
-            }
-            return values.isEmpty() ? null : values;
         }
 
         String describe() {

@@ -7,7 +7,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$Root = ''
+    [string]$Root = '',
+    [switch]$RequireArtifacts
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,7 +36,7 @@ Write-Host ''
 $excludeDirNames = @(
     '.git', '.dart_tool', '.gradle', '.idea', '.vscode', '.openchamber',
     'build', 'dist', 'backups', 'archive', ('_' + [char]0x5F52 + [char]0x6863), 'node_modules', 'ephemeral',
-    'flutter-env', 'android-env', 'release', 'gradle-home', 'pub-cache'
+    'android-env', 'release', 'gradle-home'
 )
 
 # Signing material: never acceptable in the source tree.
@@ -173,39 +174,69 @@ foreach ($template in $templates) {
 $releaseDir = Join-Path $Root 'release'
 if (Test-Path -LiteralPath $releaseDir -PathType Container) {
     $apks = @(Get-ChildItem -LiteralPath $releaseDir -File -Filter '*.apk' -ErrorAction SilentlyContinue)
-    if ($apks.Count -eq 0) { Add-Pass 'no APK staged in release' }
+    if ($apks.Count -eq 0) { Add-Warn 'no signed APK staged in release; Android signing is still required' }
     foreach ($apk in $apks) {
         if ($apk.Name -match 'debug|unsigned') {
-            Add-Warn "APK must not be published as a normal install package: $($apk.Name)"
+            Add-Block "development APK must be moved out of release: $($apk.Name)"
         } else {
             Add-Warn "confirm the release APK is signed with the fixed certificate: $($apk.Name)"
         }
     }
 
-    $latestFile = Join-Path $releaseDir 'codepass-windows-flutter-latest.txt'
-    if (Test-Path -LiteralPath $latestFile -PathType Leaf) {
-        $latest = (Get-Content -LiteralPath $latestFile -Raw).Trim()
-        $bundle = Join-Path $releaseDir $latest
-        if (Test-Path -LiteralPath $bundle -PathType Container) {
-            $signed = $true
-            foreach ($exe in @('codepass.exe', 'codepass-service.exe', 'codepass-ui.exe')) {
-                $exePath = Join-Path $bundle $exe
-                if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
-                    Add-Warn "Windows bundle is missing $exe"
-                    continue
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    foreach ($name in @('codepass-windows.zip', 'codepass-sms-magisk.zip')) {
+        $path = Join-Path $releaseDir $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($path)
+        try {
+            foreach ($entry in $zip.Entries) {
+                if ($entry.FullName -match '\\|(^|/)(config\.ini|config\.conf|lsposed\.conf|history\.txt|[^/]+\.log|[^/]+\.(jks|keystore|p12|pfx))$') {
+                    Add-Block "unexpected runtime data, signing material or Windows path separator in $name"
                 }
-                $sig = Get-AuthenticodeSignature -LiteralPath $exePath
-                if ($sig.Status -ne 'Valid') { $signed = $false }
             }
-            if ($signed) {
-                Add-Pass 'Windows executables have a valid Authenticode signature'
-            } else {
-                Add-Warn 'Windows executables are NOT code-signed; label the download accordingly'
+            $required = if ($name -eq 'codepass-windows.zip') { @('codepass.exe','LICENSE','PRIVACY.md','THIRD_PARTY_NOTICES.md') } else { @('module.prop','service.sh','forward.sh','config.example','webroot/index.html') }
+            foreach ($entryName in $required) {
+                if ($null -eq $zip.GetEntry($entryName)) { Add-Block "missing entry in ${name}: $entryName" }
+            }
+        } finally { $zip.Dispose() }
+    }
+    if ($RequireArtifacts) {
+        foreach ($name in @('codepass-windows.zip','codepass-sms-magisk.zip','codepass-lsposed-release.apk','SHA256SUMS.txt')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $releaseDir $name) -PathType Leaf)) { Add-Block "missing final release artifact: $name" }
+        }
+        $hashPath = Join-Path $releaseDir 'SHA256SUMS.txt'
+        if (Test-Path -LiteralPath $hashPath -PathType Leaf) {
+            $hashLines = @(Get-Content -LiteralPath $hashPath)
+            foreach ($name in @('codepass-windows.zip','codepass-sms-magisk.zip','codepass-lsposed-release.apk')) {
+                $path = Join-Path $releaseDir $name
+                if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+                $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+                $matches = @($hashLines | Where-Object { $_ -match ('^([0-9a-fA-F]{64})\s+\*?' + [regex]::Escape($name) + '$') })
+                if ($matches.Count -ne 1 -or ([regex]::Match($matches[0], '^[0-9a-fA-F]{64}').Value -ne $hash)) {
+                    Add-Block "missing or stale SHA256SUMS entry: $name"
+                } else { Add-Pass "SHA256SUMS verified: $name" }
+            }
+        }
+        $signedApk = Join-Path $releaseDir 'codepass-lsposed-release.apk'
+        if (Test-Path -LiteralPath $signedApk -PathType Leaf) {
+            $sdk = $env:ANDROID_HOME
+            if (-not $sdk) { $sdk = [Environment]::GetEnvironmentVariable('ANDROID_HOME','User') }
+            $signer = if ($sdk -and (Test-Path -LiteralPath (Join-Path $sdk 'build-tools'))) {
+                Get-ChildItem -LiteralPath (Join-Path $sdk 'build-tools') -Directory |
+                    Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } | Sort-Object { [version]$_.Name } -Descending |
+                    ForEach-Object { Join-Path $_.FullName 'apksigner.bat' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+            }
+            if (-not $signer) { Add-Block 'cannot locate apksigner to verify the final APK' }
+            else {
+                $result = & $signer verify --verbose --print-certs $signedApk 2>&1
+                if ($LASTEXITCODE -ne 0 -or ($result -join "`n") -match 'CN=Android Debug(?:,|$)') { Add-Block 'final APK signature failed or uses Android Debug certificate' }
+                else { Add-Pass 'final APK signature verified (still confirm the fixed certificate fingerprint)' }
             }
         }
     }
 } else {
-    Add-Pass 'no release directory yet'
+    if ($RequireArtifacts) { Add-Block 'missing release directory' }
+    else { Add-Warn 'no release directory yet; artifacts have not been checked' }
 }
 
 # ------------------------------------------------------ 6. .gitignore coverage
@@ -224,6 +255,17 @@ if (Test-Path -LiteralPath $ignorePath -PathType Leaf) {
     Add-Block 'missing .gitignore'
 }
 
+# ------------------------------------------------------ 7. version consistency
+$androidBuild = Get-Content -LiteralPath (Join-Path $Root 'phone\lsposed\app\build.gradle') -Raw -Encoding UTF8
+$moduleProp = Get-Content -LiteralPath (Join-Path $Root 'phone\magisk\module.prop') -Raw -Encoding UTF8
+$updaterSource = Get-Content -LiteralPath (Join-Path $Root 'windows\src\Updater.cs') -Raw -Encoding UTF8
+$androidVersion = [regex]::Match($androidBuild, "versionName\s+'([^']+)'").Groups[1].Value
+$magiskVersion = [regex]::Match($moduleProp, '(?m)^version=([^\r\n]+)').Groups[1].Value
+$windowsVersion = [regex]::Match($updaterSource, 'AppVersion\s*=\s*"([^"]+)"').Groups[1].Value
+if ($androidVersion -and $androidVersion -eq $magiskVersion -and $androidVersion -eq $windowsVersion) {
+    Add-Pass "all component versions match: $androidVersion"
+} else { Add-Block "version mismatch: Android=[$androidVersion] Magisk=[$magiskVersion] Windows=[$windowsVersion]" }
+
 # ------------------------------------------------------------------ 7. report
 Write-Host ("PASS  : {0}" -f $script:passed.Count) -ForegroundColor Green
 foreach ($m in $script:passed) { Write-Host "  [ok]   $m" -ForegroundColor DarkGreen }
@@ -239,5 +281,5 @@ if ($script:blocks.Count -gt 0) {
     Write-Host 'Result: blockers found. Do NOT publish yet.' -ForegroundColor Red
     exit 1
 }
-Write-Host 'Result: no blockers found. Review the warnings, then publish.' -ForegroundColor Green
+Write-Host 'Result: checks passed. Final publication requires -RequireArtifacts plus device testing.' -ForegroundColor Green
 exit 0

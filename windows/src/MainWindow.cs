@@ -921,6 +921,8 @@ namespace Codepass
                                Content='随 Windows 启动 codepass（修改后自动保存）'
                                Foreground='#E4000000' FontSize='14' VerticalAlignment='Center'/>
                   </Grid>
+                  <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
+                             Text='局域网接收必须设置随机访问令牌；未设置时只监听本机。更改令牌有无、绑定地址或端口后请重启程序。'/>
                 </StackPanel>
               </Border>
 
@@ -1455,9 +1457,9 @@ namespace Codepass
                    return false;
              }
 
-             string newToken = fldToken.Text.Trim();
-             string newPcIp = txtPcIp.Text.Trim();
-             if (cfg.PcIp.Length == 0 && autoPcIp.Length > 0 && newPcIp == autoPcIp) newPcIp = "";
+              string newToken = fldToken.Text.Trim();
+              string newPcIp = txtPcIp.Text.Trim();
+              if (cfg.PcIp.Length == 0 && autoPcIp.Length > 0 && newPcIp == autoPcIp) newPcIp = "";
               string newNtfyServer = txtNtfyServer.Text.Trim();
               string newNtfyTopic = txtNtfyTopic.Text.Trim();
               string newNtfyToken = fldNtfyToken.Text.Trim();
@@ -1492,7 +1494,8 @@ namespace Codepass
              {
                  Uri ntfyUri;
                   if (!Uri.TryCreate(newNtfyServer, UriKind.Absolute, out ntfyUri)
-                      || ntfyUri.Scheme != Uri.UriSchemeHttps)
+                       || ntfyUri.Scheme != Uri.UriSchemeHttps
+                       || ntfyUri.Host.Length == 0 || ntfyUri.UserInfo.Length > 0)
                   {
                       txtNtfyServer.Text = cfg.NtfyServer;
                       ShowToast("ntfy 服务器必须使用 HTTPS，已还原");
@@ -1695,7 +1698,8 @@ namespace Codepass
              string topic = txtNtfyTopic == null ? "" : txtNtfyTopic.Text.Trim();
              Uri uri;
               if (!Uri.TryCreate(server, UriKind.Absolute, out uri)
-                  || uri.Scheme != Uri.UriSchemeHttps)
+                   || uri.Scheme != Uri.UriSchemeHttps
+                   || uri.Host.Length == 0 || uri.UserInfo.Length > 0)
               {
                   MessageBox.Show(this, "请输入有效的 HTTPS 服务器地址。", "测试失败", MessageBoxButton.OK, MessageBoxImage.Warning);
                  return;
@@ -1708,7 +1712,8 @@ namespace Codepass
                  try
                  {
                      string target = server + (topic.Length == 0 ? "/" : "/" + topic + "/json");
-                     HttpWebRequest request = (HttpWebRequest)WebRequest.Create(target);
+                      HttpWebRequest request = (HttpWebRequest)WebRequest.Create(target);
+                      request.AllowAutoRedirect = false;
                      request.Method = "GET";
                      request.Timeout = 5000;
                      request.ReadWriteTimeout = 5000;
@@ -1783,7 +1788,8 @@ namespace Codepass
                 bool importedNtfyInvalid = imported.NtfyServer.Length == 0 && imported.NtfyTopic.Length > 0;
                 if (imported.NtfyServer.Length > 0
                      && (!Uri.TryCreate(imported.NtfyServer, UriKind.Absolute, out importedNtfyServer)
-                         || importedNtfyServer.Scheme != Uri.UriSchemeHttps))
+                          || importedNtfyServer.Scheme != Uri.UriSchemeHttps
+                          || importedNtfyServer.Host.Length == 0 || importedNtfyServer.UserInfo.Length > 0))
                     importedNtfyInvalid = true;
                 string importedFilterError;
                 bool importedFilterInvalid = !CodeExtractor.ValidateFilters(
@@ -1955,7 +1961,7 @@ namespace Codepass
              StackPanel ntfyHost = Find<StackPanel>(root, "ntfyTokenHost");
              fldToken = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
               fldNtfyToken = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
-              AttachSecret(tokenHost, fldToken, "留空表示不验证");
+                 AttachSecret(tokenHost, fldToken, "局域网接收必填");
                AttachSecret(ntfyHost, fldNtfyToken, "私有服务器可选");
          }
 
@@ -1986,9 +1992,15 @@ namespace Codepass
 
          void OnGeneratePhoneConfig()
          {
-             if (txtPcIp == null) return;
+              if (txtPcIp == null) return;
              string ip = txtPcIp.Text.Trim();
-              if (ip.Length == 0) ip = Program.DetectLocalIp();
+               if (!ApplySettings()) return;
+               if (cfg.Token.Length == 0)
+               {
+                   ShowToast("请先设置随机访问令牌并重启程序，再复制手机端配置");
+                   return;
+               }
+               if (ip.Length == 0) ip = Program.DetectLocalIp();
               if (!IsUsablePcIp(ip))
              {
                  ShowToast("未检测到可用于手机连接的电脑 IPv4 地址");
@@ -2201,24 +2213,9 @@ namespace Codepass
              updateBusy = true;
               if (btnUpdate != null) btnUpdate.IsEnabled = false;
              SetUpdateStatus("正在检查更新…");
-            Updater.RunFullyAutomatic(
-                delegate(string s) { SetUpdateStatus(s); },
-                delegate
-                {
-                    // 替换完成，即将退出并自动重启
-                    updateBusy = false;
-                    Dispatcher.BeginInvoke(new Action(delegate
-                    {
-                         bool exited = false;
-                         try { exited = Program.QuitApp(); } catch { }
-                         if (!exited)
-                         {
-                              if (btnUpdate != null) btnUpdate.IsEnabled = true;
-                             SetUpdateStatus("更新已安装，请修复设置后关闭程序以完成重启");
-                         }
-                    }));
-                },
-                delegate
+             Updater.CheckForUpdate(
+                 delegate(string s) { SetUpdateStatus(s); },
+                 delegate
                 {
                     // 未更新或更新失败：恢复按钮
                      updateBusy = false;

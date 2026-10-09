@@ -2,9 +2,6 @@
 param(
     [switch]$Release,
     [string]$EnvironmentRoot = '',
-    [switch]$Legacy,
-    [string]$FlutterRoot = '',
-    [string]$Proxy = '',
     [switch]$SignAndroid,
     [string]$AndroidKeystore = '',
     [string]$AndroidKeyAlias = '',
@@ -15,12 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $Legacy) {
-    if ($SignAndroid -and -not $Release) { throw '-SignAndroid requires -Release.' }
-    $mode = if ($Release) { 'release' } else { 'debug' }
-    & (Join-Path $root '..\..\archive\flutter-client\build.ps1') -Target android -Mode $mode -EnvironmentRoot $EnvironmentRoot -FlutterRoot $FlutterRoot -Proxy $Proxy -SignAndroid:$SignAndroid -AndroidKeystore $AndroidKeystore -AndroidKeyAlias $AndroidKeyAlias -AndroidStorePasswordEnv $AndroidStorePasswordEnv -AndroidKeyPasswordEnv $AndroidKeyPasswordEnv
-    return
-}
+# This repository ships only the native Java/LSPosed implementation.
 if ($SignAndroid -and -not $Release) { throw '-SignAndroid requires -Release.' }
 if ($SignAndroid) {
     if ([string]::IsNullOrWhiteSpace($AndroidKeystore) -or [string]::IsNullOrWhiteSpace($AndroidKeyAlias)) {
@@ -117,10 +109,9 @@ if (-not (Test-Path $apk)) {
     }
 }
 
-$releaseDir = Join-Path $root '..\..\release'
-New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-
 if ($SignAndroid) {
+    $releaseDir = Join-Path $root '..\..\release'
+    New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
     $buildToolsRoot = Join-Path $env:ANDROID_HOME 'build-tools'
     $buildTools = if (Test-Path -LiteralPath $buildToolsRoot -PathType Container) {
         Get-ChildItem -LiteralPath $buildToolsRoot -Directory
@@ -153,11 +144,6 @@ if ($SignAndroid) {
     Copy-Item -LiteralPath $signed -Destination $out -Force
     Write-Host "OK -> $out" -ForegroundColor Green
 } else {
-    $outName = if ($Release) { 'codepass-lsposed-release-unsigned.apk' } else { 'codepass-lsposed-debug.apk' }
-    $out = Join-Path $releaseDir $outName
-    Copy-Item $apk -Destination $out -Force
-    if (-not $Release) {
-        Write-Host 'Debug APK copied for device testing; do not publish it as a release package.'
-    }
-    Write-Host "OK -> $out" -ForegroundColor Green
+    Write-Host "Development artifact -> $apk" -ForegroundColor Yellow
+    Write-Host 'Only a verified, release-signed APK is copied to release.'
 }

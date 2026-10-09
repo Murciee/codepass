@@ -15,14 +15,14 @@ Android 手机转发短信 → Windows 自动识别验证码 → 写入剪贴板
 [![License](https://img.shields.io/badge/License-MIT-2f75f0)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/Murciee/codepass?style=social)](https://github.com/Murciee/codepass/stargazers)
 
-[快速开始](#快速开始局域网模式) · [方案选择](#推荐安装方式) · [公网使用](#外网使用ntfy) · [构建](#构建) · [常见问题](#常见问题) · [文档索引](#文档索引)
+[下载](#下载) · [快速开始](#快速开始局域网模式) · [方案选择](#推荐安装方式) · [公网使用](#外网使用ntfy) · [构建](#构建) · [常见问题](#常见问题) · [文档索引](#文档索引)
 
 **简体中文** · [English](README.en.md)
 
 </div>
 
 > [!WARNING]
-> 本项目不提供售后支持，也不承诺兼容性与持续维护；Windows 包未做代码签名，未签名 APK 无法直接安装。使用前请阅读 [免责声明](DISCLAIMER.md) 与 [隐私说明](PRIVACY.md)。
+> 本项目不提供售后支持，也不承诺兼容性与持续维护。Windows 包未做代码签名；LSPosed 正式 APK 使用固定发行证书签名，Debug/未签名 APK 不作为发行附件。使用前请阅读 [免责声明](DISCLAIMER.md) 与 [隐私说明](PRIVACY.md)。
 
 ```text
 Android 新短信 → 局域网 / EasyTier / ntfy → Windows 识别验证码 → 剪贴板
@@ -46,6 +46,25 @@ Android 新短信 → 局域网 / EasyTier / ntfy → Windows 识别验证码 �
 | 📱 多种手机方案 | 免 root Webhook、root 脚本、Magisk、LSPosed，任选一种 |
 | 🎨 界面 | Windows 原生 Fluent 圆角界面；Magisk 轻量 WebUI |
 
+## 下载
+
+当前源码主线版本为 **v1.0.3**。安装包从 [GitHub Releases](https://github.com/Murciee/codepass/releases) 获取，以实际发布的附件为准；源码提交不等于 Release 已上线。
+
+| 附件 | 用途 |
+| --- | --- |
+| `codepass-windows.zip` | Windows 原生单文件客户端，解压后运行 `codepass.exe`，无需安装额外运行库 |
+| `codepass-sms-magisk.zip` | 已安装 Magisk 的手机使用，通过模块管理器安装 |
+| `codepass-lsposed-release.apk` | 发行证书签名的 LSPosed 原生模块，需已有 LSPosed 环境 |
+| `SHA256SUMS.txt` | 三个附件的 SHA-256 校验值；用于核对文件，不代替签名或来源验证 |
+
+仅需要安装所选手机方案，不必同时安装 APK 与 Magisk 模块。`release/` 不进入源码 Git 提交，安装包需作为 Release 附件单独上传。
+
+**升级提示：** Windows 先从托盘退出，只覆盖 `codepass.exe`，保留自己的配置和记录。从 Debug APK 切换到发行 APK 通常需要先卸载旧包，会清除应用内配置；新版 LSPosed 不再读取旧 `lsposed.conf`，请在应用内填写配置。
+
+### 发布验证边界
+
+已通过原生构建、23 项合成 HTTP/安全测试、WPF 界面解析、APK 签名/对齐校验及独立只读代码复核。真机安装、实际短信 hook、锁屏/重启和 Magisk 安装仍需设备验证，不能据此承诺所有 ROM 兼容。
+
 ## 推荐安装方式
 
 普通用户建议「局域网 + 免 root Webhook」：配置简单、延迟低、无需 root。
@@ -61,7 +80,7 @@ Android 新短信 → 局域网 / EasyTier / ntfy → Windows 识别验证码 �
 
 ## 快速开始：局域网模式
 
-1. **Windows 端**：运行 `codepass.exe`（单文件，配置存在 EXE 同目录）。首次运行如遇防火墙提示，允许「专用网络」。在「设置」页点「检测本机地址」记下 IPv4，并填一段随机「访问令牌」。
+1. **Windows 端**：运行 `codepass.exe`（单文件，配置存在 EXE 同目录）。先设置随机「访问令牌」，再点「检测本机地址」选择电脑 IPv4，从托盘退出并重启。防火墙提示时允许「专用网络」。
 2. **手机端**：Webhook 目标地址 `http://电脑IPv4:8787/sms`，方法 `POST`，正文用短信正文变量；令牌放进 `X-Token` 请求头或 `?token=` 参数。
 3. **验证**：点「测试连通性」后，用手机发一条测试短信，识别到的验证码会写入剪贴板并显示在记录页。
 
@@ -70,7 +89,7 @@ http://电脑IPv4:8787/sms
 X-Token: 你的令牌
 ```
 
-> 关闭窗口只是隐藏到托盘，接收不中断；完全退出请右键托盘图标。修改端口或 ntfy 后需重启生效，访问令牌即时生效。
+> 关闭窗口只是隐藏到托盘；完全退出请右键托盘图标。修改绑定地址、端口、ntfy 或令牌有无后需重启；更换已有令牌立即生效，清空令牌会立即拒收局域网请求。
 
 ## Windows 设置
 
@@ -83,14 +102,14 @@ X-Token: 你的令牌
 | 桌面通知 / 隐私保护 | 是否通知，以及通知内容的三档脱敏 |
 | 信息过滤 | 逐行关键字或 .NET 正则，命中即忽略该短信 |
 | 程序密码锁 | 保护设置与记录页，可选自动锁定 |
-| 关于与检查更新 | 版本号、GitHub 主页、检查更新（自动下载、重启完成） |
+| 关于与检查更新 | 版本号、GitHub 主页；新版本打开下载页，手动更新 |
 | ntfy 设置 | 公网中转的服务器、主题与令牌 |
 
-要点：输入框失焦或回车即自动保存；令牌、验证码长度、通知内容立即生效，端口与 ntfy 在下次启动应用。数据文件 `config.ini` / `history.txt` / `app.log` 位于 EXE 同目录。
+要点：输入框失焦或回车即自动保存；验证码长度、通知内容和更换已有令牌立即生效。绑定地址、端口、ntfy 或令牌有无变更后重启。数据文件 `config.ini` / `history.txt` / `app.log` 位于 EXE 同目录。
 
 ## 外网使用：ntfy
 
-手机与电脑不在同一网络时，用 ntfy 中转：在 Windows 与手机端填相同的服务器、主题、令牌，改完配置后从托盘退出并重启。推荐自建或使用 HTTPS 服务，主题名需足够随机。详见 [`phone/ntfy.md`](phone/ntfy.md)。
+手机与电脑不在同一网络时，用 ntfy 中转：两端填相同的 HTTPS 服务器、主题、令牌，Windows 改完配置后重启。优先使用带身份认证的私有服务；公共主题名不是可靠的访问控制。详见 [`phone/ntfy.md`](phone/ntfy.md)。
 
 ## 网络接口
 
@@ -111,7 +130,7 @@ GET  http://电脑IPv4:8787/health   # 健康检查，返回 {"ok":true}
 
 ## 安全与风险
 
-- 始终设置随机访问令牌；令牌为空时局域网接口不鉴权，且不要映射到公网；
+- 局域网接收必须设置随机访问令牌；令牌为空只监听本机，不要映射端口到公网；
 - ntfy 主题与令牌不得提交到公开仓库，服务器须用 HTTPS；
 - `app.log`、`history.txt` 与手机配置可能含验证码或令牌，请妥善保护；
 - 程序密码锁仅保护界面，不加密本地数据；通知脱敏不等于完整隐私保护。
@@ -122,11 +141,11 @@ GET  http://电脑IPv4:8787/health   # 健康检查，返回 {"ok":true}
 
 | 目标 | 命令 | 产物 |
 | --- | --- | --- |
-| Windows 原生单文件 | `windows\build.ps1 -Legacy` | `windows/dist/codepass.exe` |
-| LSPosed 原生回退版 | `phone\lsposed\build.ps1 -Legacy` | `release/codepass-lsposed-debug.apk` |
+| Windows 原生单文件 | `windows\build.ps1` | `windows/dist/codepass.exe` |
+| LSPosed 原生模块（开发测试） | `phone\lsposed\build.ps1` | `phone/lsposed/app/build/outputs/apk/debug/app-debug.apk` |
 | Magisk 模块 | `phone\magisk\build.ps1` | `release/codepass-sms-magisk.zip` |
 
-LSPosed 正式包：先加 `-Release` 生成未签名 APK，再用 `-SignAndroid -AndroidKeystore <文件> -AndroidKeyAlias <别名>` 搭配 `CODEPASS_ANDROID_STORE_PASSWORD` / `CODEPASS_ANDROID_KEY_PASSWORD` 环境变量签名，输出 `release/codepass-lsposed-release.apk`。构建环境通过 `JAVA_HOME`、`ANDROID_HOME` 等变量提供，详见 [`docs/BUILD_ANDROID.md`](docs/BUILD_ANDROID.md)。
+LSPosed 正式包：用 `-Release -SignAndroid -AndroidKeystore <文件> -AndroidKeyAlias <别名>` 搭配 `CODEPASS_ANDROID_STORE_PASSWORD` / `CODEPASS_ANDROID_KEY_PASSWORD` 环境变量签名，输出 `release/codepass-lsposed-release.apk`。构建环境通过 `JAVA_HOME`、`ANDROID_HOME` 等变量提供，详见 [`docs/BUILD_ANDROID.md`](docs/BUILD_ANDROID.md)。
 
 ## 仓库结构
 
@@ -136,7 +155,7 @@ release/  发布产物                            docs/   发布 / 构建 / 合�
 tools/    发布前检查脚本                      assets/ 文档与界面用图
 ```
 
-历史 Flutter / Rust 实现与旧产物收纳在本地 `archive/`（不随仓库发布）。
+仓库只保留当前维护的 Windows 原生客户端、Magisk 模块和 LSPosed 原生模块。
 
 ## 文档索引
 

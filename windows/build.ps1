@@ -4,17 +4,13 @@
 # NOTE: keep this file ASCII-only (Windows PowerShell mis-decodes UTF-8 without BOM).
 
 [CmdletBinding()]
-param([switch]$Legacy, [string]$FlutterRoot = '', [string]$Proxy = '')
+param([string]$OutputDirectory = '')
 
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $Legacy) {
-    & (Join-Path $root '..\archive\flutter-client\build.ps1') -Target windows -Mode release -FlutterRoot $FlutterRoot -Proxy $Proxy
-    return
-}
 $srcs = Join-Path $root 'src\*.cs'
-$dist = Join-Path $root 'dist'
+$dist = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $root 'dist' } else { [IO.Path]::GetFullPath($OutputDirectory) }
 $out  = Join-Path $dist 'codepass.exe'
 $icon = Join-Path $root 'codepass.ico'
 
@@ -60,9 +56,9 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
 if ($LASTEXITCODE -ne 0) { throw "build failed (exit $LASTEXITCODE)" }
 
-if (-not (Test-Path (Join-Path $dist 'config.ini'))) {
-    Copy-Item (Join-Path $root 'config.ini') -Destination (Join-Path $dist 'config.ini')
-}
+# Do not copy config.ini into the build output. It is runtime data and may
+# contain tokens/history-related settings from a previous local run. The
+# application creates its default configuration in memory on first launch.
 
 # Package the portable build into release\codepass-windows.zip.
 # Entries use '/' separators: Compress-Archive on Windows PowerShell 5.1 writes
@@ -72,8 +68,18 @@ $zipOut = Join-Path $releaseDir 'codepass-windows.zip'
 $zipTmp = "$zipOut.tmp"
 $packageAllow = @(
     @{ Name = 'codepass.exe';             Source = $out },
-    @{ Name = 'config.ini';               Source = (Join-Path $root 'config.ini') },
     @{ Name = 'README.md';                Source = (Join-Path $root '..\README.md') },
+    @{ Name = 'README.en.md';             Source = (Join-Path $root '..\README.en.md') },
+    @{ Name = 'CHANGELOG.md';             Source = (Join-Path $root '..\CHANGELOG.md') },
+    @{ Name = 'LICENSE';                  Source = (Join-Path $root '..\LICENSE') },
+    @{ Name = 'DISCLAIMER.md';            Source = (Join-Path $root '..\DISCLAIMER.md') },
+    @{ Name = 'PRIVACY.md';               Source = (Join-Path $root '..\PRIVACY.md') },
+    @{ Name = 'SECURITY.md';              Source = (Join-Path $root '..\SECURITY.md') },
+    @{ Name = 'SUPPORT.md';               Source = (Join-Path $root '..\SUPPORT.md') },
+    @{ Name = 'THIRD_PARTY_NOTICES.md';    Source = (Join-Path $root '..\THIRD_PARTY_NOTICES.md') },
+    @{ Name = 'docs/BUILD_ANDROID.md';     Source = (Join-Path $root '..\docs\BUILD_ANDROID.md') },
+    @{ Name = 'docs/RELEASE_CHECKLIST.md'; Source = (Join-Path $root '..\docs\RELEASE_CHECKLIST.md') },
+    @{ Name = 'docs/RELEASE_NOTES.md';     Source = (Join-Path $root '..\docs\RELEASE_NOTES.md') },
     @{ Name = 'phone/README.md';          Source = (Join-Path $root '..\phone\README.md') },
     @{ Name = 'phone/no-root.md';         Source = (Join-Path $root '..\phone\no-root.md') },
     @{ Name = 'phone/ntfy.md';            Source = (Join-Path $root '..\phone\ntfy.md') },
@@ -109,4 +115,4 @@ Write-Host "release -> $zipOut" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "OK -> $out" -ForegroundColor Green
-Write-Host "config -> $(Join-Path $dist 'config.ini')"
+Write-Host 'Package contains no local runtime config or message history.'

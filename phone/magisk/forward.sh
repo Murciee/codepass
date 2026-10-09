@@ -83,6 +83,19 @@ mkdir -p "${LOG%/*}" 2>/dev/null
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 
+is_https_endpoint() {
+    case "$1" in
+        https://?*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if [ -n "$NTFY_TOPIC" ] && ! is_https_endpoint "$NTFY_SERVER"; then
+    log "ntfy disabled: server is not HTTPS"
+    NTFY_TOPIC=""
+    NTFY_TOKEN=""
+fi
+
 extract_code() {
     txt="$1"
     c=$(echo "$txt" | grep -oE "(验证码|校验码|动态码|动态密码|verification code|code|OTP)[^0-9]{0,12}[0-9]{${MIN_LEN},${MAX_LEN}}" | grep -oE "[0-9]{${MIN_LEN},${MAX_LEN}}" | head -1)
@@ -104,10 +117,10 @@ post_lan() {
 post_ntfy() {
     [ -z "$NTFY_TOPIC" ] && return 0
     if [ -n "$NTFY_TOKEN" ]; then
-        curl -s -m 5 -X POST "$NTFY_SERVER/$NTFY_TOPIC" \
+        curl -q --proto '=https' --proto-redir '=https' -s -m 5 -X POST "$NTFY_SERVER/$NTFY_TOPIC" \
              -H "Authorization: Bearer $NTFY_TOKEN" --data-raw "$1" >/dev/null 2>&1
     else
-        curl -s -m 5 -X POST "$NTFY_SERVER/$NTFY_TOPIC" \
+        curl -q --proto '=https' --proto-redir '=https' -s -m 5 -X POST "$NTFY_SERVER/$NTFY_TOPIC" \
              --data-raw "$1" >/dev/null 2>&1
     fi
 }

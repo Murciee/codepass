@@ -42,20 +42,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-public-release.p
 - [ ] 对外发布物（GitHub Release 上传内容）中不包含 Debug APK、调试符号或开发环境路径信息；
 - [ ] Magisk 模块打包使用白名单，不混入 `config.conf`、日志或本地文件；
 - [ ] 发布包内容与各 `README`（`windows/`、`phone/`、[`docs/BUILD_ANDROID.md`](BUILD_ANDROID.md)）中描述的文件清单一致；
-- [ ] `release/` 中三端产物已刷新为最新构建：`codepass-windows.zip`、`codepass-sms-magisk.zip`、`codepass-lsposed-debug.apk`；需要分发的已签名包为 `codepass-lsposed-release.apk`。
+- [ ] `release/` 仅放当前正式附件：`codepass-windows.zip`、`codepass-sms-magisk.zip`、签名验证通过的 `codepass-lsposed-release.apk`；Debug 与 unsigned APK 留在开发构建目录。
+- [ ] 为附件生成 `SHA256SUMS.txt`，记录 APK 的公开签名证书 SHA-256 指纹，证书口令及私钥不进入仓库。
 
 ## 五、行为与承诺核对
 
 - [ ] 文档中描述的功能与当前代码一致；
 - [ ] 未宣传不具备的能力（持久化补发、端到端加密、全平台兼容、正式签名）；
 - [ ] 未要求用户关闭杀毒软件或系统安全功能；
-- [ ] 版本号与 `phone/magisk/module.prop`、`windows/src/Updater.cs` 的 `AppVersion`、发布说明中的版本信息一致且已更新。
+- [ ] 版本号与 Android `app/build.gradle`、`phone/magisk/module.prop`、`windows/src/Updater.cs` 的 `AppVersion`、发布说明一致；升级使用更大的 `versionCode`。
 
 ## 六、发布动作
 
 - [ ] 选择公开发布渠道（GitHub Release 建议先标记为 **Pre-release**）；
 - [ ] 发布前将 `windows/src/Updater.cs` 的 `RepoUrl` 占位（`USERNAME`）替换为实际仓库地址，并验证“关于 → 检查更新”可用；
-- [ ] Release 使用 `vX.Y.Z` 形式的 tag，且上传 `codepass-windows.zip`（或在附件中单独提供 `codepass.exe`）；应用内“检查更新”优先取 `codepass.exe` 附件，否则从 zip 中提取 `codepass.exe`；
+- [ ] Release 使用 `vX.Y.Z` tag。“检查更新”有新版本时打开固定仓库下载页，用户核对校验值、退出程序后手动覆盖 EXE；程序不再自动下载或执行未验证的更新。
+- [ ] 未设置 Windows 令牌时只监听回环；局域网必须使用随机令牌，错误/缺失令牌返回 403。绑定地址/端口或令牌有无修改后重启测试。
+- [ ] ntfy 的 HTTP 地址被拒绝；LSPosed 清空目标后确实停止转发，普通应用不能通过 Provider 读取配置。
 - [ ] 发布说明写明已测试与未测试的环境；
 - [ ] 上传的是**源码**与**构建产物**，不包含任何本地数据；
 - [ ] 首次发布后，检查仓库首页是否正确显示许可证；

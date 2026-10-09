@@ -52,7 +52,7 @@ public final class MainActivity extends Activity {
     private static final int BORDER = Color.rgb(220, 227, 238);
     private static final int ACCENT = Color.rgb(79, 112, 181);
     private static final int INPUT_BACKGROUND = Color.rgb(248, 250, 253);
-    // 配置键由 ConfigProvider 统一定义（该文件同时供 Flutter 版共享构建编译）。
+    // 配置键由 ConfigProvider 统一定义。
     static final String[] CONFIG_KEYS = ConfigProvider.CONFIG_KEYS;
     // 兜底解析：中转工具把多行配置折叠成一行或出现额外文本时，仍能按 KEY="value" 提取（键名与 CONFIG_KEYS 同步）。
     private static final Pattern CONFIG_LINE_PATTERN = Pattern.compile(
@@ -115,7 +115,7 @@ public final class MainActivity extends Activity {
         TextView subtitle = text("短信验证码转发设置", 14, MUTED);
         titles.addView(subtitle, fullWidthWithTop(4));
         header.addView(brand, fullWidth());
-        TextView hint = text("目标作用域：com.android.phone（建议把本应用 codepass 也勾入作用域，作为备用读取通道）。\n保存后即时生效，无需重启电话进程或手机。", 12.5f, MUTED);
+        TextView hint = text("目标作用域：com.android.phone。配置仅通过受权限限制的应用通道读取。\n保存后即时生效；清空全部目标并保存即可停止转发。", 12.5f, MUTED);
         hint.setLineSpacing(0, 1.15f);
         header.addView(hint, fullWidthWithTop(12));
         content.addView(header, fullWidth());
@@ -428,6 +428,12 @@ public final class MainActivity extends Activity {
                 return;
             }
         }
+        String ntfyTopic = fields.get("NTFY_TOPIC").getText().toString().trim();
+        String ntfyServer = fields.get("NTFY_SERVER").getText().toString().trim();
+        if (ntfyTopic.length() > 0 && !isHttpsEndpoint(ntfyServer)) {
+            status.setText("保存失败：启用 ntfy 时服务器必须使用 HTTPS。");
+            return;
+        }
         final Map<String, String> snapshot = new HashMap<String, String>();
         for (String key : CONFIG_KEYS) {
             snapshot.put(key, fields.get(key).getText().toString().trim());
@@ -438,8 +444,7 @@ public final class MainActivity extends Activity {
             @Override public void run() {
                 String message;
                 try {
-                    // appPrefs 首次获取时尝试 MODE_WORLD_READABLE（LSPosed 勾选自身作用域后放行），
-                    // 失败回退私有模式；两种模式下电话进程都可通过 ConfigProvider 读取。
+                    // 偏好文件始终私有，电话进程通过 ConfigProvider 读取。
                     SharedPreferences prefs = ConfigProvider.appPrefs(MainActivity.this);
                     SharedPreferences.Editor editor = prefs.edit();
                     for (String key : CONFIG_KEYS) {
@@ -606,6 +611,8 @@ public final class MainActivity extends Activity {
                 }
                 if (sendNtfy && ntfyServer.length() == 0) {
                     report.append("ntfy：未发送（服务器地址为空）\n");
+                } else if (sendNtfy && !isHttpsEndpoint(ntfyServer)) {
+                    report.append("ntfy：未发送（服务器必须使用 HTTPS）\n");
                 } else if (sendNtfy) {
                     String result = postOnce(trimTrailingSlash(ntfyServer) + "/" + ntfyTopic, body, "", ntfyToken, true);
                     report.append("ntfy：").append(result).append('\n');
@@ -634,6 +641,7 @@ public final class MainActivity extends Activity {
         try {
             byte[] payload = body.getBytes(Charset.forName("UTF-8"));
             connection = (HttpURLConnection) new URL(target).openConnection();
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
@@ -674,6 +682,16 @@ public final class MainActivity extends Activity {
             result = result.substring(0, result.length() - 1);
         }
         return result;
+    }
+
+    private static boolean isHttpsEndpoint(String value) {
+        try {
+            URL url = new URL(value);
+            return url.getProtocol().equalsIgnoreCase("https")
+                    && url.getHost().length() > 0 && url.getUserInfo() == null;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /** 测试通道按与 hook 相同的规则解析端口：空或非法回退 8787，越界夹取到 1～65535。 */

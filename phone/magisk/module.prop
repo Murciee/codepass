@@ -1,6 +1,6 @@
 id=codepass-sms
 name=codepass 短信验证码转发
-version=1.0.0
-versionCode=1
+version=1.0.3
+versionCode=4
 author=codepass
 description=读取新短信并推送原文到 codepass Windows 端（电脑识别验证码）；支持双电脑和 ntfy。

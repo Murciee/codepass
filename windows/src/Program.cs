@@ -4,7 +4,7 @@
 //
 // 通道:
 //   1) 局域网 HTTP:  手机 POST http://<本机IP>:<port>/sms
-//                    可选鉴权: 头 X-Token 或 query ?token=  (config.ini 里 token 非空时启用)
+//                    局域网监听时必须配置令牌（X-Token 或 ?token=）；回环监听可不鉴权
 //   2) 公网 ntfy:     订阅 https://ntfy.sh/<topic>  (可选, 外出/移动数据兜底)
 //
 // 收到后自动提取验证码, 写剪贴板 + 弹气泡 + 记入历史; 托盘图标双击开窗。
@@ -75,6 +75,7 @@ namespace Codepass
 
         static int activeClients;
         const int MaxClients = 32;
+        static volatile bool httpLanBound;
 
         static readonly byte[] CrlfCrlf = new byte[] { 13, 10, 13, 10 };
         static readonly byte[] LfLf = new byte[] { 10, 10 };
@@ -99,8 +100,7 @@ namespace Codepass
             // 老版 .NET Framework 默认只协商到 TLS 1.0, 访问 ntfy.sh 等站点会 SSL 失败
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12
-                    | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             }
             catch { }
 
@@ -133,7 +133,6 @@ namespace Codepass
             History.Init(Path.Combine(appDir, "history.txt"));
             List<HistoryItem> savedHistory = History.Snapshot();
             if (savedHistory.Count > 0) latestCode = savedHistory[0].Code;
-            Updater.CleanupOldFile();
 
             Log.Write("========== start ==========");
             Log.Write("port=" + cfg.Port
@@ -406,7 +405,8 @@ namespace Codepass
         {
             Uri uri;
             return Uri.TryCreate(value ?? "", UriKind.Absolute, out uri)
-                && uri.Scheme == Uri.UriSchemeHttps;
+                && uri.Scheme == Uri.UriSchemeHttps && uri.Host.Length > 0
+                && uri.UserInfo.Length == 0;
         }
 
         static void ScheduleClear()
@@ -610,11 +610,14 @@ namespace Codepass
         static void HttpLoop()
         {
             TcpListener listener;
+            IPAddress listenAddress = ResolveListenAddress();
+            httpLanBound = !IPAddress.IsLoopback(listenAddress);
             try
             {
-                listener = new TcpListener(IPAddress.Any, cfg.Port);
+                listener = new TcpListener(listenAddress, cfg.Port);
                 listener.Start();
-                Log.Write("HTTP listening on 0.0.0.0:" + cfg.Port);
+                Log.Write("HTTP listening on " + listenAddress + ":" + cfg.Port
+                    + " token=" + (cfg.Token.Length == 0 ? "off" : "on"));
             }
             catch (Exception e)
             {
@@ -637,6 +640,30 @@ namespace Codepass
             try { listener.Stop(); } catch { }
         }
 
+        // 没有令牌时只绑定回环，避免把未鉴权接口暴露到局域网。
+        // 有令牌时，空 PC_IP 绑定所有 IPv4 网卡，填写 PC_IP 则只绑定该地址。
+        static IPAddress ResolveListenAddress()
+        {
+            IPAddress configured;
+            if (cfg.Token.Length == 0)
+            {
+                return IPAddress.Loopback;
+            }
+            if (String.IsNullOrWhiteSpace(cfg.PcIp))
+            {
+                return IPAddress.Any;
+            }
+            if (!IPAddress.TryParse(cfg.PcIp.Trim(), out configured)
+                || configured.AddressFamily != AddressFamily.InterNetwork
+                || IPAddress.IsLoopback(configured)
+                || configured.Equals(IPAddress.Any))
+            {
+                Log.Write("HTTP security: invalid LAN address; binding 127.0.0.1 instead");
+                return IPAddress.Loopback;
+            }
+            return configured;
+        }
+
         static void HandleClient(object state)
         {
             TcpClient client = (TcpClient)state;
@@ -657,7 +684,15 @@ namespace Codepass
                     string head, body;
                     if (!ReadHttp(ns, out head, out body)) return;
 
-                    if (cfg.Token.Length > 0 && !TokenOk(head))
+                    string requiredToken = cfg.Token;
+                    if (httpLanBound && requiredToken.Length == 0)
+                    {
+                        Log.Write("[http] 拒绝: 局域网监听未配置 token");
+                        byte[] denied = Encoding.ASCII.GetBytes("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        ns.Write(denied, 0, denied.Length);
+                        return;
+                    }
+                    if (requiredToken.Length > 0 && !TokenOk(head, requiredToken))
                     {
                         Log.Write("[http] 拒绝: token 不匹配");
                         byte[] denied = Encoding.UTF8.GetBytes("{\"ok\":false,\"err\":\"token\"}");
@@ -686,7 +721,17 @@ namespace Codepass
                          return;
                      }
 
-                      if (body != null && body.Trim().Length > 0)
+                    string requestLine = head.Split('\n')[0].Trim();
+                    string[] requestParts = requestLine.Split(' ');
+                    if (requestParts.Length != 3 || requestParts[0] != "POST"
+                        || requestParts[1].Split('?')[0] != "/sms")
+                    {
+                        byte[] notFound = Encoding.ASCII.GetBytes("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        ns.Write(notFound, 0, notFound.Length);
+                        return;
+                    }
+
+                       if (body != null && body.Trim().Length > 0)
                           HandleIncoming(body, "http", HeaderValueB64(head, "X-SMS-Sender-B64", HeaderValue(head, "X-SMS-Sender")));
 
                     byte[] payload = Encoding.UTF8.GetBytes("{\"ok\":true}");
@@ -704,7 +749,7 @@ namespace Codepass
             finally { Interlocked.Decrement(ref activeClients); }
         }
 
-        static bool TokenOk(string head)
+        static bool TokenOk(string head, string requiredToken)
         {
             if (head == null) return false;
             string[] lines = head.Split('\n');
@@ -716,7 +761,7 @@ namespace Codepass
                 int c = s.IndexOf(':');
                 if (c <= 0) continue;
                 if (s.Substring(0, c).Trim().Equals("X-Token", StringComparison.OrdinalIgnoreCase)
-                    && s.Substring(c + 1).Trim() == cfg.Token) return true;
+                    && s.Substring(c + 1).Trim() == requiredToken) return true;
             }
 
             // 查询串: ?token=xxx (按键值精确比较, 避免 xtoken= 之类误判)
@@ -737,7 +782,7 @@ namespace Codepass
                              string supplied = kvs[i].Substring(eq + 1);
                              try { supplied = Uri.UnescapeDataString(supplied); }
                              catch { continue; }
-                             if (supplied == cfg.Token) return true;
+                              if (supplied == requiredToken) return true;
                          }
                     }
                 }
@@ -750,8 +795,9 @@ namespace Codepass
             if (head == null) return false;
             int end = head.IndexOf('\n');
             string first = end >= 0 ? head.Substring(0, end).Trim() : head.Trim();
-            return first.StartsWith("GET /health ", StringComparison.OrdinalIgnoreCase)
-                || first.Equals("GET /health", StringComparison.OrdinalIgnoreCase);
+            string[] parts = first.Split(' ');
+            return parts.Length == 3 && parts[0] == "GET"
+                && parts[1].Split('?')[0] == "/health";
         }
 
         static bool ReadHttp(NetworkStream ns, out string head, out string body)
@@ -786,7 +832,7 @@ namespace Codepass
                             head = Encoding.ASCII.GetString(arr, 0, headerEnd);
                             cl = ParseContentLength(head);
                             if (cl < 0 && RequestHasNoBody(head)) cl = 0;
-                            if (cl > 1048576) cl = 1048576;   // 防整数溢出 / 防巨量 body
+                            if (cl < 0 || cl > 1048576 || HeaderValue(head, "Transfer-Encoding").Length > 0) return false;
                         }
                     }
                     if (headerEnd >= 0 && cl >= 0 && len >= headerEnd + sep + cl) break;
@@ -796,6 +842,7 @@ namespace Codepass
                 if (headerEnd < 0) return false;
                 int bodyStart = headerEnd + sep;
                 int bodyLen = (int)ms.Length - bodyStart;
+                if (cl < 0 || bodyLen < cl) return false;
                 if (bodyLen < 0) bodyLen = 0;
                 if (cl >= 0 && bodyLen > cl) bodyLen = cl;   // 无 Content-Length 时保留已读到的 body
                 body = Encoding.UTF8.GetString(ms.GetBuffer(), bodyStart, bodyLen);
@@ -908,6 +955,7 @@ namespace Codepass
                     string url = cfg.NtfyServer.TrimEnd('/') + "/" + cfg.NtfyTopic + "/json";
                     Log.Write("ntfy subscribing");
                     HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                    req.AllowAutoRedirect = false;
                     req.Timeout = 30000;
                     req.ReadWriteTimeout = 120000;
                     req.UserAgent = "codepass/1.0";
@@ -917,6 +965,7 @@ namespace Codepass
                     using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
                     using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
                     {
+                        if ((int)resp.StatusCode != 200) throw new IOException("ntfy response is not HTTP 200");
                         string line;
                         while (running && (line = sr.ReadLine()) != null)
                         {
