@@ -162,15 +162,17 @@ tools/    发布前检查脚本                      assets/ 文档与界面用�
 - 使用：[免 root](phone/no-root.md) · [Magisk](phone/magisk/README.md) · [LSPosed](phone/lsposed/README.md) · [root / 脚本](phone/README.md) · [ntfy](phone/ntfy.md)
 - 发布与合规：[发布清单](docs/RELEASE_CHECKLIST.md) · [发布说明模板](docs/RELEASE_NOTES.md) · [构建环境](docs/BUILD_ANDROID.md) · [更新记录](CHANGELOG.md)
 
+## 社区
+
+感谢 [LINUX DO](https://linux.do) 社区提供开放、友善的技术交流平台
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Murciee/codepass&type=Date)](https://star-history.com/#Murciee/codepass&Date)
+
 
 <div align="center">
 
 **[⬆ 回到顶部](#codepass)**
 
 </div>
-## 社区
-
-感谢 [LINUX DO](https://linux.do) 社区提供开放、友善的技术交流平台
