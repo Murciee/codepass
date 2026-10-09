@@ -22,7 +22,7 @@ Android 手机转发短信 → Windows 自动识别验证码 → 写入剪贴板
 </div>
 
 > [!WARNING]
-> **免费测试版**，不提供售后支持，也不承诺兼容性与持续维护；Windows 包未做代码签名，未签名 APK 无法直接安装。使用前请阅读 [免责声明](DISCLAIMER.md) 与 [隐私说明](PRIVACY.md)。
+> 本项目不提供售后支持，也不承诺兼容性与持续维护；Windows 包未做代码签名，未签名 APK 无法直接安装。使用前请阅读 [免责声明](DISCLAIMER.md) 与 [隐私说明](PRIVACY.md)。
 
 ```text
 Android 新短信 → 局域网 / EasyTier / ntfy → Windows 识别验证码 → 剪贴板
@@ -116,7 +116,7 @@ GET  http://电脑IPv4:8787/health   # 健康检查，返回 {"ok":true}
 - `app.log`、`history.txt` 与手机配置可能含验证码或令牌，请妥善保护；
 - 程序密码锁仅保护界面，不加密本地数据；通知脱敏不等于完整隐私保护。
 
-**本项目为免费测试阶段的个人开源工具，按「现状」提供，不承诺支持与维护。** 使用前请阅读 [免责声明](DISCLAIMER.md)、[隐私说明](PRIVACY.md)、[第三方组件](THIRD_PARTY_NOTICES.md)、[安全问题](SECURITY.md)、[维护边界](SUPPORT.md)；源码以 [MIT 许可](LICENSE)发布。
+**本项目为个人开源工具，按「现状」提供，不承诺支持与维护。** 使用前请阅读 [免责声明](DISCLAIMER.md)、[隐私说明](PRIVACY.md)、[第三方组件](THIRD_PARTY_NOTICES.md)、[安全问题](SECURITY.md)、[维护边界](SUPPORT.md)；源码以 [MIT 许可](LICENSE)发布。
 
 ## 构建
 

@@ -22,7 +22,7 @@ Android phone forwards the SMS → Windows detects the code → writes it to the
 </div>
 
 > [!WARNING]
-> **Free beta.** No support is provided, and compatibility or ongoing maintenance is not promised. The Windows package is not code-signed, and unsigned APKs cannot be installed directly. Read the [Disclaimer](DISCLAIMER.md) and [Privacy Notice](PRIVACY.md) before use.
+> No support is provided, and compatibility or ongoing maintenance is not promised. The Windows package is not code-signed, and unsigned APKs cannot be installed directly. Read the [Disclaimer](DISCLAIMER.md) and [Privacy Notice](PRIVACY.md) before use.
 
 ```text
 New Android SMS → LAN / EasyTier / ntfy → Windows detects the code → clipboard
@@ -116,7 +116,7 @@ Pass the token via the `X-Token` header or `?token=`. When a token is set, both 
 - `app.log`, `history.txt`, and phone config may contain codes or tokens — protect them;
 - The passcode lock protects the UI only and does not encrypt local data; masking is not full privacy protection.
 
-**This is a free, beta-stage personal open-source tool provided “as is”, with no support or maintenance promised.** Before use, read the [Disclaimer](DISCLAIMER.md), [Privacy Notice](PRIVACY.md), [Third-Party Notices](THIRD_PARTY_NOTICES.md), [Security](SECURITY.md), and [Support](SUPPORT.md) policies. Released under the [MIT License](LICENSE).
+**This is a personal open-source tool provided “as is”, with no support or maintenance promised.** Before use, read the [Disclaimer](DISCLAIMER.md), [Privacy Notice](PRIVACY.md), [Third-Party Notices](THIRD_PARTY_NOTICES.md), [Security](SECURITY.md), and [Support](SUPPORT.md) policies. Released under the [MIT License](LICENSE).
 
 ## Building
 
