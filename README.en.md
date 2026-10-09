@@ -28,6 +28,12 @@ Android phone forwards the SMS → Windows detects the code → writes it to the
 New Android SMS → LAN / EasyTier / ntfy → Windows detects the code → clipboard
 ```
 
+<div align="center">
+
+![codepass main window: History / General / Security / About](assets/ui-overview.png)
+
+</div>
+
 ## Features
 
 | Capability | Description |

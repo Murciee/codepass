@@ -28,6 +28,12 @@ Android 手机转发短信 → Windows 自动识别验证码 → 写入剪贴板
 Android 新短信 → 局域网 / EasyTier / ntfy → Windows 识别验证码 → 剪贴板
 ```
 
+<div align="center">
+
+![codepass 主界面：记录 / 常规设置 / 安全设置 / 关于](assets/ui-overview.png)
+
+</div>
+
 ## 主要功能
 
 | 能力 | 说明 |
