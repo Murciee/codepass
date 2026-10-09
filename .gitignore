@@ -1,0 +1,53 @@
+# 运行时会生成,含验证码明文,请勿提交
+windows/dist/app.log
+windows/dist/history.txt
+
+# 本机配置(各人不同)
+windows/dist/config.ini
+
+# 打包产物
+release/
+
+# 本地预览图
+ui-preview*.png
+
+# Development assets and generated files
+backups/
+archive/
+_归档/
+.openchamber/
+flutter-env/
+android-env/*
+!android-env/README.md
+!android-env/activate.ps1
+**/build/
+**/.gradle/
+**/.dart_tool/
+**/local.properties
+
+# Runtime data and signing material
+**/config.ini
+**/config.ini.new
+**/history.txt
+**/history.txt.new
+**/config.conf
+**/lsposed.conf
+**/screenshots/
+**/diagnostics/
+*.log
+*.keystore
+*.jks
+**/key.properties
+*.p12
+*.pfx
+*.pem
+*.key
+*.der
+**/secrets.properties
+**/.env
+**/*.symbols
+
+# Local IDE and preview artifacts
+.idea/
+.vscode/
+*.iml

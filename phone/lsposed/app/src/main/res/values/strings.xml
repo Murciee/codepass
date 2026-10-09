@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">codepass</string>
+    <string name="app_description">从系统短信分发流程读取短信并发送原文到 codepass Windows 端（验证码由电脑识别）。</string>
+</resources>

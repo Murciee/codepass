@@ -1,0 +1,14 @@
+# codepass Magisk module configuration
+PC_IP=""
+PC_PORT="8787"
+TOKEN=""
+PC2_IP=""
+PC2_PORT="8787"
+PC2_TOKEN=""
+NTFY_SERVER="https://ntfy.sh"
+NTFY_TOPIC=""
+NTFY_TOKEN=""
+INTERVAL=3
+MIN_LEN=4
+MAX_LEN=8
+LOG="/data/adb/codepass-sms/codepass.log"

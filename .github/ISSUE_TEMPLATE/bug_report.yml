@@ -1,0 +1,78 @@
+name: 问题反馈
+description: 报告使用中的问题（请勿填写真实短信、验证码或令牌）
+title: "[问题] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 提交前请先阅读
+
+        这是一个**免费的个人开源项目**，不提供售后支持，也不承诺响应时限。
+
+        请先查阅仓库根目录中的这些文件：
+
+        - `README.md` —— 安装、配置与常见问题；
+        - `DISCLAIMER.md` —— 免责声明与风险清单；
+        - `PRIVACY.md` —— 隐私说明。
+
+        **不要在本表单中填写真实短信正文、验证码、访问令牌、完整配置文件或密钥。**
+        包含敏感信息的反馈可能被直接删除。
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 确认
+      options:
+        - label: 我已阅读 README 的排查步骤，并确认本条反馈中不包含我的真实短信、验证码或令牌。
+          required: true
+        - label: 我理解这是免费测试版工具，维护者不承诺修复或响应时限。
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 使用的版本
+      description: 例如 Windows 包日期、APK 版本号或模块版本
+      placeholder: "例如 2026-10-08 的 Windows 包"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scheme
+    attributes:
+      label: 手机方案
+      options:
+        - 免 root Webhook
+        - Magisk 模块
+        - LSPosed 模块
+        - root 脚本
+        - 只使用 Windows 端
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 系统环境
+      description: Windows 版本、手机型号与系统版本（不要包含个人信息）
+      placeholder: "例如 Windows 11 23H2 x64 / 某品牌 Android 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 操作步骤
+      description: 说明你做了什么、期望结果和实际结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志（已删除敏感信息）
+      description: 如需粘贴日志，请先删除短信正文、验证码、令牌、IP 和完整配置
+      render: text
+    validations:
+      required: false

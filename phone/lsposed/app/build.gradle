@@ -1,0 +1,37 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.codepass.lsposed'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.codepass.lsposed'
+        minSdk 23
+        targetSdk 28
+        versionCode 4
+        versionName '1.0.3'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    lint {
+        // 模块通过 GitHub 分发，不上架 Google Play；targetSdk 28 是兼容旧 ROM 的保留选择。
+        disable 'ExpiredTargetSdkVersion'
+    }
+}
+
+dependencies {
+    def localApi = file('libs/api-82.jar')
+    if (localApi.exists()) {
+        compileOnly files(localApi)
+    } else {
+        compileOnly 'de.robv.android.xposed:api:82'
+    }
+}

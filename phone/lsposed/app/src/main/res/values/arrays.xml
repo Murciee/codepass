@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 推荐作用域：模块自身（XSharedPreferences 备用通道需要）与电话进程（短信转发目标）。 -->
+    <string-array name="xposed_scope">
+        <item>com.codepass.lsposed</item>
+        <item>com.android.phone</item>
+    </string-array>
+</resources>

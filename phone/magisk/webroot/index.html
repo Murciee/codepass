@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>codepass 设置</title>
+  <style>
+    :root{color-scheme:light;--bg:#f4f6fb;--card:#fff;--line:#dce3ee;--text:#253047;--muted:#67748b;--blue:#4f70b5;--tint:#edf2fc;--ok:#347552;--warn:#855e26;--error:#b54141}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);font:15px/1.5 system-ui,-apple-system,"Noto Sans SC",sans-serif;color:var(--text);-webkit-tap-highlight-color:transparent}
+    main{max-width:680px;margin:0 auto;padding:24px max(18px,env(safe-area-inset-right)) max(36px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
+    .head{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding:20px;border:1px solid var(--line);border-radius:32px;background:var(--tint)}
+    .logo{flex:0 0 50px;width:50px;height:50px;border-radius:20px;background:var(--blue);display:grid;place-items:center;box-shadow:0 6px 16px #4f70b51a}.logo svg{width:32px;height:32px}.logo svg path:not(:first-child){fill:var(--blue)}.head h1{font-size:24px;margin:0;letter-spacing:-.5px}.head p{margin:3px 0 0;color:var(--muted);font-size:13px}
+    section{background:var(--card);border:1px solid #e3e8f2;border-radius:32px;padding:20px;margin:14px 0;box-shadow:0 3px 12px #25304704}
+    h2{font-size:16px;margin:0 0 14px}label{display:block;color:var(--muted);font-size:13px;margin:14px 0 7px}input{width:100%;min-width:0;min-height:48px;border:1px solid var(--line);background:#f8fafd;color:var(--text);border-radius:24px;padding:11px 16px;font:inherit;font-size:16px;outline:none;transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease}
+    input::placeholder{color:var(--muted)}input:focus{background:#fff;border-color:var(--blue);box-shadow:0 0 0 3px #4f70b51a}.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}.hint{color:var(--muted);font-size:12px;line-height:1.65;margin:12px 0 0;overflow-wrap:anywhere}
+    .warning{color:var(--warn);background:#fff8ec;border:1px solid #efe1c8;border-radius:24px;padding:14px;font-size:12px;line-height:1.65;overflow-wrap:anywhere}.buttons{display:flex;gap:12px;margin-top:18px;flex-wrap:wrap}button{min-height:48px;border:1px solid transparent;border-radius:24px;padding:11px 20px;color:#fff;background:var(--blue);font:inherit;font-weight:600;cursor:pointer;transition:transform .16s ease,background-color .16s ease,border-color .16s ease}
+    button:focus-visible{outline:2px solid var(--blue);outline-offset:3px}button:active{transform:scale(.98);background:#3d5996}button.secondary{color:var(--text);background:#fff;border-color:var(--line)}button.secondary:active{background:#e3eaf8}#status{min-height:22px;color:var(--ok);font-size:13px;margin-top:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+    @media(hover:hover){button:hover{background:#4565a6}button.secondary:hover{background:var(--tint);border-color:#b7c7e3}}
+    @media(max-width:460px){.row{grid-template-columns:1fr}.buttons button{flex:1 1 180px}.head{padding:18px}section{padding:18px}}
+    /* 动画由浏览器合成器同步显示刷新率，不使用固定 60 fps 定时器。 */
+    @media(prefers-reduced-motion:no-preference){main{animation:reveal .2s ease-out}@keyframes reveal{from{opacity:.88;transform:translateY(4px)}to{opacity:1;transform:none}}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="head"><div class="logo" aria-hidden="true"><svg viewBox="0 0 108 108"><path fill="#fff" d="M35 28h38c3 0 5 2 5 5v47c0 3-2 5-5 5H35c-3 0-5-2-5-5V33c0-3 2-5 5-5Z"/><path fill="#0067c0" d="M44 20h20c2 0 4 2 4 4v6H40v-6c0-2 2-4 4-4Z"/><path fill="#0067c0" d="M40 43h28v4H40zm0 10h28v4H40zm0 10h28v4H40zM34 43h3v4h-3zm0 10h3v4h-3zm0 10h3v4h-3z"/></svg></div><div><h1>codepass</h1><p>短信验证码转发设置</p></div></div>
+  <section>
+    <h2>电脑端</h2>
+    <label for="PC_IP">电脑 IPv4 地址</label><input id="PC_IP" placeholder="例如 192.168.1.100" autocomplete="off" spellcheck="false">
+    <div class="row"><div><label for="PC_PORT">监听端口</label><input id="PC_PORT" inputmode="numeric" value="8787"></div><div><label for="TOKEN">局域网令牌</label><input id="TOKEN" type="password" placeholder="可留空" autocomplete="off"></div></div>
+    <p class="hint">令牌必须与 Windows 端 config.ini 中的 token 完全一致。</p>
+  </section>
+  <section>
+    <h2>电脑端（第二台，可选）</h2>
+    <label for="PC2_IP">电脑 IPv4 地址</label><input id="PC2_IP" placeholder="留空表示不启用" autocomplete="off" spellcheck="false">
+    <div class="row"><div><label for="PC2_PORT">监听端口</label><input id="PC2_PORT" inputmode="numeric" value="8787"></div><div><label for="PC2_TOKEN">局域网令牌</label><input id="PC2_TOKEN" type="password" placeholder="可留空" autocomplete="off"></div></div>
+    <p class="hint">填写后短信会同时发送到两台电脑；留空则不发送到第二台。令牌必须与第二台电脑 config.ini 中的 token 完全一致。</p>
+  </section>
+  <section>
+    <h2>公网 ntfy（可选）</h2>
+    <label for="NTFY_SERVER">服务器地址</label><input id="NTFY_SERVER" value="https://ntfy.sh" placeholder="https://ntfy.example.com" autocomplete="off" spellcheck="false">
+    <label for="NTFY_TOPIC">主题名称</label><input id="NTFY_TOPIC" placeholder="长随机主题名" autocomplete="off" spellcheck="false">
+    <label for="NTFY_TOKEN">访问令牌</label><input id="NTFY_TOKEN" type="password" placeholder="私有服务器使用" autocomplete="off">
+    <p class="hint">只使用局域网时，主题和令牌都留空。公共主题名相当于密码，请使用长随机字符串。</p>
+  </section>
+  <section>
+    <h2>识别设置</h2>
+    <div class="row"><div><label for="MIN_LEN">最短验证码长度</label><input id="MIN_LEN" inputmode="numeric" value="4"></div><div><label for="MAX_LEN">最长验证码长度</label><input id="MAX_LEN" inputmode="numeric" value="8"></div></div>
+    <label for="INTERVAL">读取间隔（秒）</label><input id="INTERVAL" inputmode="numeric" value="3">
+    <p class="hint">读取间隔用于检查新短信，与界面刷新率无关。</p>
+  </section>
+  <div class="warning">配置可能包含访问令牌。具有相应文件访问权限的程序可能读取配置，请勿公开配置文件或含敏感信息的截图。</div>
+  <div class="buttons"><button id="save">保存配置</button><button class="secondary" id="copy">复制配置文本</button></div>
+  <div id="status" role="status" aria-live="polite"></div>
+</main>
+<script>
+  const keys=['PC_IP','PC_PORT','TOKEN','PC2_IP','PC2_PORT','PC2_TOKEN','NTFY_SERVER','NTFY_TOPIC','NTFY_TOKEN','INTERVAL','MIN_LEN','MAX_LEN'];
+  const defaults={PC_IP:'',PC_PORT:'8787',TOKEN:'',PC2_IP:'',PC2_PORT:'8787',PC2_TOKEN:'',NTFY_SERVER:'https://ntfy.sh',NTFY_TOPIC:'',NTFY_TOKEN:'',INTERVAL:'3',MIN_LEN:'4',MAX_LEN:'8'};
+  let fs=null, mod=null;
+  try { if (window.global && typeof window.global.require==='function') { fs=window.global.require('wx:fs'); mod=window.global.require('wx:module'); } } catch(e) {}
+  function base(){ try { const dir=mod && (mod.adbDir || (typeof mod.getAdbDir==='function' ? mod.getAdbDir() : '')); return typeof dir==='string' && dir.length ? dir.replace(/\/+$/,'') : '/data/adb'; } catch(e) { return '/data/adb'; } }
+  function path(){ return base() + '/codepass-sms/config.conf'; }
+  function parse(text){ const out={...defaults}; (text||'').split(/\r?\n/).forEach(line=>{ let m=line.match(/^\s*([A-Z0-9_]+)\s*=\s*"(.*)"\s*$/); if(!m) m=line.match(/^\s*([A-Z0-9_]+)\s*=\s*([^#]*?)\s*$/); if(m&&keys.includes(m[1])) out[m[1]]=(m[2]||'').replace(/\\([\\"$`])/g,'$1').trim(); }); return out; }
+  function shell(v){ return String(v).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\$/g,'\\$').replace(/`/g,'\\`'); }
+  function text(){ return keys.map(k=>k+'="'+shell(document.getElementById(k).value.trim())+'"').join('\n')+'\n'; }
+  function fill(data){ keys.forEach(k=>document.getElementById(k).value=data[k] ?? defaults[k]); }
+  function message(s,ok=true){ const el=document.getElementById('status'); el.style.color=ok?'var(--ok)':'var(--error)'; el.textContent=s; }
+  function load(){ let data={...defaults}; try { if(fs&&fs.readTextSync) data=parse(fs.readTextSync(path())); } catch(e){ data={...defaults}; } fill(data); }
+  document.getElementById('save').onclick=()=>{ const t=text(); try { if(fs&&fs.writeTextSync){ if(fs.mkdirsSync) fs.mkdirsSync(base()+'/codepass-sms'); fs.writeTextSync(path(),t); const locked=!!fs.chmodSync; if(locked) fs.chmodSync(path(),parseInt('600',8)); message('配置已保存'+(locked?'（权限 0600）。':'。请确认管理器已限制配置文件权限。')+'重启手机后生效。'); } else { message('当前管理器不提供 root 文件接口，配置未保存。请使用支持的管理器或手动导入配置。',false); } } catch(e){ message('配置保存失败，请检查 root 授权与文件访问权限。',false); } };
+  document.getElementById('copy').onclick=async()=>{ const t=text(); try { await navigator.clipboard.writeText(t); message('配置文本已复制。'); } catch(e){ message('复制失败，请使用页面中的字段手动填写配置。',false); } };
+  load();
+</script>
+</body>
+</html>
