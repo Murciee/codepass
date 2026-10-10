@@ -1008,23 +1008,23 @@ namespace Codepass
                       <Grid.RowDefinitions>
                         <RowDefinition Height='Auto'/>
                         <RowDefinition Height='Auto'/>
+                        <RowDefinition Height='Auto'/>
+                        <RowDefinition Height='Auto'/>
                       </Grid.RowDefinitions>
 
                       <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='过滤关键字'/>
-                      <StackPanel Grid.Row='0' Grid.Column='1'>
-                        <TextBox x:Name='txtFilterKeywords' Style='{StaticResource Input}' Height='32'
-                                 VerticalContentAlignment='Center' Padding='6,0,7,0'
-                                 AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
-                        <TextBlock Style='{StaticResource Hint}' Text='每行一个关键字，短信包含任一关键字时直接忽略' Margin='0,5,0,10'/>
-                      </StackPanel>
+                      <TextBox x:Name='txtFilterKeywords' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}'
+                               Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                               AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                      <TextBlock Grid.Row='1' Grid.Column='1' Style='{StaticResource Hint}' TextWrapping='Wrap'
+                                 Text='每行一个关键字，短信包含任一关键字时直接忽略；留空表示不启用' Margin='0,5,0,12'/>
 
-                      <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='过滤正则'/>
-                      <StackPanel Grid.Row='1' Grid.Column='1'>
-                        <TextBox x:Name='txtFilterRegex' Style='{StaticResource Input}' Height='32'
-                                 VerticalContentAlignment='Center' Padding='6,0,7,0'
-                                 AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
-                        <TextBlock Style='{StaticResource Hint}' Text='每行一条 .NET 正则表达式，任一匹配时直接忽略；留空表示不启用' Margin='0,5,0,0'/>
-                      </StackPanel>
+                      <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='过滤正则'/>
+                      <TextBox x:Name='txtFilterRegex' Grid.Row='2' Grid.Column='1' Style='{StaticResource Input}'
+                               Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                               AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                      <TextBlock Grid.Row='3' Grid.Column='1' Style='{StaticResource Hint}' TextWrapping='Wrap'
+                                 Text='每行一条 .NET 正则表达式，任一匹配时直接忽略；留空表示不启用' Margin='0,5,0,0'/>
                     </Grid>
                   </StackPanel>
                </Border>
