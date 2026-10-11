@@ -96,6 +96,10 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 
 设置自动保存。网络监听和 ntfy 变更后重启；邮箱设置即时生效。记录清理只影响本地记录，不删除邮箱邮件。
 
+## 开发维护
+
+Windows 端代码结构、构建边界和维护入口见 [代码地图](https://github.com/Murciee/codepass/blob/main/docs/ARCHITECTURE.md)。
+
 ## 常见问题
 
 - **手机连不上电脑**：检查电脑 IPv4、端口、令牌和 Windows 防火墙。

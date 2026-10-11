@@ -96,6 +96,10 @@ Closing the window hides it to the tray; quit from the tray menu.
 
 Settings save automatically. Restart after changing network listening or ntfy; email settings apply immediately. History cleanup never deletes mailbox messages.
 
+## Development
+
+See the [Windows code map](https://github.com/Murciee/codepass/blob/main/docs/ARCHITECTURE.md) for the code structure, build boundaries and maintenance entry points.
+
 ## FAQ
 
 - **Can't reach the PC**: check the IPv4 address, port, token and Windows Firewall.

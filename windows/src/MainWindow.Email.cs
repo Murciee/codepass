@@ -1,0 +1,185 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Runtime.InteropServices;
+using Microsoft.Win32;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Markup;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Interop;
+using System.Windows.Shell;
+using System.Windows.Threading;
+using MessageBox = Codepass.CodepassDialog;
+
+namespace Codepass
+{
+    sealed partial class MainWindow
+    {
+        // 邮箱服务预设（与下拉顺序一致）；最后一项为自定义。
+        static readonly string[] EmailProviderServers = { "imap.qq.com", "imap.163.com", "imap.126.com", "imap.gmail.com", "outlook.office365.com" };
+
+        static int EmailProviderIndexOf(string server)
+        {
+            for (int i = 0; i < EmailProviderServers.Length; i++)
+                if (string.Equals(server, EmailProviderServers[i], StringComparison.OrdinalIgnoreCase)) return i;
+            return EmailProviderServers.Length;
+        }
+
+        /// <summary>选择服务商预设时自动填服务器地址；“自定义”保持用户输入。</summary>
+        void ApplyEmailProviderPreset()
+        {
+            if (cmbEmailProvider == null || txtEmailServer == null) return;
+             int index = cmbEmailProvider.SelectedIndex;
+              if (index >= 0 && index < EmailProviderServers.Length)
+              {
+                  string server = EmailProviderServers[index];
+                  if (!string.Equals(server, txtEmailServer.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                  {
+                      chkEmail.IsChecked = false;
+                      fldEmailAuth.Text = "";
+                      txtEmailServer.Text = server;
+                  }
+              }
+             UpdateEmailAuthHint();
+         }
+
+         void UpdateEmailAuthHint()
+         {
+             string server = txtEmailServer == null ? cfg.EmailServer : txtEmailServer.Text.Trim();
+             int provider = EmailProviderIndexOf(server);
+              bool gmail = provider == 3;
+             if (emailAuthHint != null)
+                 emailAuthHint.Text = cfg.EmailPasswordRequired ? "请重新填写 IMAP 授权码 / 应用专用密码"
+                     : cfg.EmailAuthUndecryptable
+                     ? "已失效：换机或换了 Windows 账户，请重新填写"
+                     : gmail ? "填写 Google 生成的 16 位应用专用密码，不是账号密码"
+                     : "填写 IMAP 授权码 / 应用专用密码，不是邮箱网页登录密码";
+             if (emailProviderHint != null)
+                 emailProviderHint.Text = gmail
+                      ? "Gmail：先开启两步验证，再生成应用专用密码。部分组织账号或高级保护账号无法生成应用专用密码。"
+                     : provider >= 0 && provider <= 2
+                     ? "QQ / 163 / 126 邮箱：先在网页版邮箱设置中开启 IMAP 服务，再生成授权码。"
+                      : "请使用服务商允许的 IMAP 授权码或应用专用密码。";
+             if (btnEmailAuthHelp != null)
+                 btnEmailAuthHelp.Visibility = gmail ? Visibility.Visible : Visibility.Collapsed;
+         }
+
+         static List<string> EmailKeywordList(string text)
+         {
+             List<string> list = new List<string>();
+             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+             foreach (string line in (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+             {
+                 string value = line.Trim();
+                 if (value.Length > 0 && seen.Add(value)) list.Add(value);
+             }
+             return list;
+         }
+
+         void RenderEmailKeywordTags()
+         {
+             if (emailKeywordTags == null || txtEmailKeywords == null) return;
+             emailKeywordTags.Children.Clear();
+             UpdateEmailPreview();
+             foreach (string keyword in EmailKeywordList(txtEmailKeywords.Text))
+             {
+                 string value = keyword;
+                 Border chip = new Border { Background = MakeBrush(0xE8, 0xF2, 0xFC), CornerRadius = new CornerRadius(12),
+                     Padding = new Thickness(10, 2, 6, 2), Margin = new Thickness(0, 0, 6, 6) };
+                 StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
+                 content.Children.Add(new TextBlock { Text = value, Foreground = AccentTx, FontSize = 13,
+                     VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 250, ToolTip = value });
+                 Button remove = new Button { Content = "×", Width = 24, Height = 24, FontSize = 16,
+                     Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = FgFaint,
+                     Cursor = Cursors.Hand, ToolTip = "移除关键词", Margin = new Thickness(4, 0, 0, 0) };
+                 System.Windows.Automation.AutomationProperties.SetName(remove, "移除关键词 " + value);
+                 remove.Click += delegate
+                 {
+                     List<string> words = EmailKeywordList(txtEmailKeywords.Text);
+                     words.Remove(value);
+                     txtEmailKeywords.Text = string.Join("\n", words.ToArray());
+                     ApplySettings();
+                 };
+                 content.Children.Add(remove); chip.Child = content; emailKeywordTags.Children.Add(chip);
+             }
+         }
+
+         void AddEmailKeywords()
+         {
+             if (txtEmailKeywordAdd == null || txtEmailKeywords == null) return;
+             string text = string.Join("\n", EmailKeywordList(txtEmailKeywords.Text + "\n" + txtEmailKeywordAdd.Text).ToArray());
+             string normalized, error;
+             if (!MailRules.NormalizeLines(text, out normalized, out error)) { ShowToast("主题关键词无效：" + error); return; }
+             txtEmailKeywords.Text = normalized;
+             txtEmailKeywordAdd.Clear();
+             ApplySettings();
+         }
+
+         void UpdateEmailPreview()
+         {
+             if (lblEmailPreviewResult == null || txtEmailSubjectPreview == null) return;
+             string normalized, error;
+             lblEmailPreviewResult.Text = !MailRules.NormalizeLines(txtEmailKeywords.Text, out normalized, out error)
+                 ? "规则无效：" + error : txtEmailSubjectPreview.Text.Length == 0 ? "输入主题查看是否会被接收"
+                 : MailRules.SubjectMatches(txtEmailSubjectPreview.Text, normalized) ? "主题命中；仍需满足发件人和时效规则" : "主题未命中，将跳过";
+         }
+
+         public void UpdateEmailStatus()
+         {
+             if (lblEmailStatus == null) return;
+             lblEmailStatus.Text = cfg.EmailPasswordRequired ? "请重新填写应用专用密码，邮箱接收已关闭"
+                 : !cfg.EmailEnabled ? "邮箱接收已关闭"
+                 : !Program.EmailConfigured() ? "邮箱未配置完整" : "收件箱：" + EmailWatcher.Status;
+             if (EmailWatcher.LastCheckUtc != DateTime.MinValue)
+                 lblEmailStatus.Text += " · 最后检查 " + EmailWatcher.LastCheckUtc.ToLocalTime().ToString("HH:mm:ss");
+             if (lblEmailFolders != null) lblEmailFolders.Text = !Program.EmailConfigured() ? "分类目录：待启用"
+                 : "分类目录：" + EmailWatcher.FolderStatus + (EmailWatcher.LastFolderCheckUtc == DateTime.MinValue ? ""
+                     : " · 最后成功 " + EmailWatcher.LastFolderCheckUtc.ToLocalTime().ToString("HH:mm:ss"));
+             if (lblEmailProcessing != null) lblEmailProcessing.Text = cfg.EmailEnabled
+                 ? "收件箱处理：" + EmailWatcher.LastMailResult + "\n分类目录处理：" + EmailWatcher.LastFolderResult + "\n" + EmailWatcher.RecentSummary : "";
+             Button recheck = Find<Button>((FrameworkElement)Content, "btnEmailRecheck");
+             if (recheck != null) { recheck.IsEnabled = Program.EmailConfigured() && !EmailWatcher.RecentCheckPending;
+                 recheck.Content = EmailWatcher.RecentCheckPending ? "正在复查近 30 分钟…" : "重新检查近 30 分钟"; }
+             string storage = string.Join("\n", new string[] { Config.LastSaveError ?? "", History.LastSaveError ?? "" }).Trim();
+             if (lblStorageError != null) lblStorageError.Text = storage;
+             Border banner = Find<Border>((FrameworkElement)Content, "storageErrorBanner");
+             if (banner != null) banner.Visibility = storage.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+             if (lblQqStatus != null) lblQqStatus.Text = !Program.EmailConfigured() ? "请先配置并启用邮箱；当前不会触发检查"
+                 : !cfg.QqPopupEnabled ? "联动已关闭" : "监测中 · 最近提醒 " + QqPopupWatcher.LastSignalText;
+             if (chkQqPopup != null) chkQqPopup.IsEnabled = Program.EmailConfigured();
+         }
+
+         void TestEmailConnection()
+         {
+             if (emailTestCancel != null) { emailTestCancel.Cancel(); return; }
+             if (!ApplySettings()) return;
+             Config identity = new Config(); identity.CopyFrom(cfg);
+             if (identity.EmailAccount.Length == 0 || identity.EmailServer.Length == 0
+                 || identity.EmailPasswordRequired || identity.EmailAuth.Length == 0)
+             { ShowToast("请先填写完整邮箱和 IMAP 授权码 / 应用专用密码"); return; }
+             CancellationTokenSource cancel = new CancellationTokenSource(); emailTestCancel = cancel;
+             btnEmailTest.Content = "取消测试"; lblEmailTestResult.Text = "正在测试认证与只读收件箱连接…";
+             Thread worker = new Thread(delegate()
+             {
+                 string result;
+                 try { result = EmailWatcher.TestConnection(identity, cancel.Token); }
+                 catch (OperationCanceledException) { result = "连接测试已取消"; }
+                 catch { result = cancel.IsCancellationRequested ? "连接测试已取消" : "连接测试失败，请检查网络、服务设置与授权"; }
+                 try { Dispatcher.BeginInvoke(new Action(delegate
+                 {
+                     emailTestCancel = null; cancel.Dispose(); btnEmailTest.Content = "测试邮箱连接"; lblEmailTestResult.Text = result;
+                 })); } catch { cancel.Dispose(); }
+             });
+             worker.IsBackground = true; worker.Name = "email-test"; worker.Start();
+         }
+
+    }
+}
