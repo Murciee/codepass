@@ -960,8 +960,8 @@ namespace Codepass
                    <TextBlock x:Name='lblEmailFolders' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,8,0,0'/>
                    <TextBlock x:Name='lblEmailProcessing' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,5,0,0'/>
                    <WrapPanel Margin='0,12,0,0'>
-                     <Button x:Name='btnEmailTest' Style='{StaticResource SecondaryBtn}' Content='测试邮箱连接' Margin='0,0,8,6'/>
-                     <Button x:Name='btnEmailRecheck' Style='{StaticResource SecondaryBtn}' Content='重新检查近 30 分钟' Margin='0,0,8,6'/>
+                     <Button x:Name='btnEmailTest' Style='{StaticResource SecondaryBtn}' Content='测试邮箱连接' Margin='0,0,8,0'/>
+                     <Button x:Name='btnEmailRecheck' Style='{StaticResource SecondaryBtn}' Content='重新检查近 30 分钟' Margin='0,0,8,0'/>
                    </WrapPanel>
                    <TextBlock x:Name='lblEmailTestResult' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,5,0,0'/>
                  </StackPanel>
@@ -1014,8 +1014,8 @@ namespace Codepass
                     <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='电脑 IPv4 地址'/>
                     <WrapPanel Grid.Row='0' Grid.Column='1' VerticalAlignment='Center'>
                        <TextBox x:Name='txtPcIp' Style='{StaticResource Input}' Width='300'/>
-                       <Button x:Name='btnDetect' Style='{StaticResource SecondaryBtn}' Content='检测本机地址' Margin='8,0,0,6'/>
-                       <Button x:Name='btnTestPc' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='8,0,0,6'/>
+                       <Button x:Name='btnDetect' Style='{StaticResource SecondaryBtn}' Content='检测本机地址' Margin='8,0,0,0'/>
+                       <Button x:Name='btnTestPc' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='8,0,0,0'/>
                     </WrapPanel>
 
                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='验证码长度'/>
@@ -1053,7 +1053,7 @@ namespace Codepass
                      <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='服务器地址'/>
                      <WrapPanel Grid.Row='0' Grid.Column='1' VerticalAlignment='Center'>
                          <TextBox x:Name='txtNtfyServer' Style='{StaticResource Input}' Width='300'/>
-                        <Button x:Name='btnTestNtfy' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='8,0,0,6'/>
+                        <Button x:Name='btnTestNtfy' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='8,0,0,0'/>
                      </WrapPanel>
 
                      <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='主题名称'/>
@@ -1193,8 +1193,8 @@ namespace Codepass
                        <WrapPanel x:Name='emailKeywordTags'/>
                         <WrapPanel Margin='0,4,0,0'>
                          <TextBox x:Name='txtEmailKeywordAdd' Style='{StaticResource Input}' Width='210' ToolTip='输入关键词，按回车添加；支持粘贴多行'/>
-                          <Button x:Name='btnEmailKeywordAdd' Style='{StaticResource SecondaryBtn}' Content='添加' Margin='8,0,0,6'/>
-                          <Button x:Name='btnEmailKeywordDefault' Style='{StaticResource SecondaryBtn}' Content='恢复默认' Margin='8,0,0,6'/>
+                         <Button x:Name='btnEmailKeywordAdd' Style='{StaticResource SecondaryBtn}' Content='添加' Margin='8,0,0,0'/>
+                         <Button x:Name='btnEmailKeywordDefault' Style='{StaticResource SecondaryBtn}' Content='恢复默认' Margin='8,0,0,0'/>
                         </WrapPanel>
                        <Expander Header='批量编辑（每行一个关键词）' FontSize='12.5' Margin='0,8,0,0'>
                        <TextBox x:Name='txtEmailKeywords' Style='{StaticResource Input}' Margin='0,6,0,0'
@@ -1294,8 +1294,8 @@ namespace Codepass
                   <TextBlock Style='{StaticResource CardTitle}' Text='配置管理'/>
                    <WrapPanel>
                      <Button x:Name='btnGen' Style='{StaticResource SecondaryBtn}' Content='复制手机端配置'/>
-                     <Button x:Name='btnImport' Style='{StaticResource SecondaryBtn}' Content='导入设置' Margin='10,0,0,6'/>
-                     <Button x:Name='btnExport' Style='{StaticResource SecondaryBtn}' Content='导出设置' Margin='10,0,0,6'/>
+                     <Button x:Name='btnImport' Style='{StaticResource SecondaryBtn}' Content='导入设置' Margin='10,0,0,0'/>
+                     <Button x:Name='btnExport' Style='{StaticResource SecondaryBtn}' Content='导出设置' Margin='10,0,0,0'/>
                    </WrapPanel>
                    <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='设置修改后自动保存；端口 / ntfy 修改后请重启。导出设置用于迁移，排障请使用“关于”中的脱敏诊断。' Margin='0,10,0,0'/>
                 </StackPanel>
