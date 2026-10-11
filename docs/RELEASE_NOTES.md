@@ -1,5 +1,20 @@
 # 发布说明
 
+## codepass v1.0.5
+
+修复 Windows 设置界面中输入框与右侧按钮没有垂直对齐的问题，并检查了邮箱、短信连接、ntfy、关键词和配置管理等同类布局。
+
+### 下载与升级
+
+| 附件 | 版本与用途 |
+| --- | --- |
+| `codepass-windows.zip` | v1.0.5，解压后运行 `codepass.exe` |
+| `codepass-sms-magisk.zip` | 手机端 v1.0.3，继续兼容本次更新 |
+| `codepass-lsposed-release.apk` | 手机端已签名 v1.0.3，继续兼容本次更新 |
+| `SHA256SUMS.txt` | 本次附件校验值 |
+
+Windows 先从托盘退出，再覆盖 `codepass.exe`，保留自己的配置与记录。Windows 包未做代码签名，可能显示未知发布者；不要为此关闭系统安全功能。
+
 ## codepass v1.0.4
 
 新增邮箱验证码接收，并改善记录查找、设置分区和托盘使用。手机模块保持 v1.0.3，无需重装。
