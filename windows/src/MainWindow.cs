@@ -30,16 +30,39 @@ namespace Codepass
         readonly string cfgPath;
 
          TextBox txtPort, txtPcIp, txtNtfyServer, txtNtfyTopic, txtMin, txtMax, txtClear, txtFilterKeywords, txtFilterRegex;
+         TextBox txtSmsMaxLength;
          SecretField fldToken, fldNtfyToken;
          CheckBox chkTip, chkStartup, chkAutoLock;
-        ComboBox cmbPrivacy;
+        ComboBox cmbPrivacy, cmbEmailPrivacy;
+        TextBox txtEmailServer, txtEmailAccount, txtEmailPoll, txtEmailKeywords, txtEmailSenders;
+        SecretField fldEmailAuth;
+        CheckBox chkEmail, chkEmailJunk, chkEmailNotify, chkEmailAutoCopy, chkQqPopup;
+        ComboBox cmbEmailProvider;
+        TextBlock emailAuthHint, emailProviderHint;
+        Button btnEmailAuthHelp;
+        TextBox txtEmailKeywordAdd;
+        WrapPanel emailKeywordTags;
+        CheckBox chkEmailSaveBody;
+        TextBlock lblEmailStatus, lblEmailPreviewResult;
+        TextBlock lblEmailFolders, lblEmailProcessing, lblEmailTestResult, lblStorageError, lblQqStatus;
+        TextBox txtEmailSubjectPreview;
+        Button btnEmailTest;
+        CancellationTokenSource emailTestCancel;
+        bool warnedEmailAuthUndecryptable;
         Button btnTestPc, btnTestNtfy, btnLock;
         StackPanel listHost;
-        TextBlock lblCount;
-          Button navHistory, navGeneral, navSecurity, navAbout;
+        TextBlock lblCount, lblHistoryEmpty;
+        TextBox txtHistorySearch;
+        TextBox txtHistoryRetention;
+        Button tabAllHistory, tabSmsHistory, tabEmailHistory;
+        ScrollViewer historyScroll;
+        string historyChannel = "all";
+        readonly List<ResponsiveForm> responsiveForms = new List<ResponsiveForm>();
+          Button navHistory, navGeneral, navEmail, navSecurity, navAbout;
          Grid pageSet, pageLog, pageAbout;
          ScrollViewer settingsScroll;
-          Border cardNetwork, cardGeneral, cardNotify, cardSecurity, cardMore;
+           Border cardNetwork, cardGeneral, cardNotify, cardSecurity, cardMore, cardEmail, cardEmailFilters, cardQqPopup;
+        Border cardEmailStatus, cardNtfy, cardSmsFilters;
         Border dragBar;
         Border lockOverlay;
          PasswordBox txtUnlockPassword;
@@ -64,6 +87,7 @@ namespace Codepass
          Border selectedRow;
          bool allowClose = false;
          bool closeCompleted;
+         Window historyRawWindow, diagnosticsWindow;
          bool wasMinimized;
 
         static readonly Brush FgBody   = MakeBrush(0x1C, 0x1C, 0x1C);
@@ -331,7 +355,10 @@ namespace Codepass
                   <ScaleTransform x:Name='UnderlineScale' ScaleX='0'/>
                 </Border.RenderTransform>
               </Border>
-              <ScrollViewer x:Name='PART_ContentHost' Focusable='False' Margin='{TemplateBinding Padding}' VerticalAlignment='Center'/>
+              <ScrollViewer x:Name='PART_ContentHost' Focusable='False' Margin='{TemplateBinding Padding}'
+                            VerticalScrollBarVisibility='{TemplateBinding VerticalScrollBarVisibility}'
+                            HorizontalScrollBarVisibility='{TemplateBinding HorizontalScrollBarVisibility}'
+                            VerticalAlignment='Stretch'/>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property='IsMouseOver' Value='True'>
@@ -370,6 +397,13 @@ namespace Codepass
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+    </Style>
+
+    <Style x:Key='EmailFieldLabel' TargetType='TextBlock' BasedOn='{StaticResource FieldLabel}'>
+      <Setter Property='Height' Value='32'/>
+      <Setter Property='Margin' Value='0,8,12,8'/>
+      <Setter Property='VerticalAlignment' Value='Top'/>
+      <Setter Property='Padding' Value='0,6,0,0'/>
     </Style>
 
     <Style x:Key='PasswordInput' TargetType='PasswordBox'>
@@ -766,6 +800,18 @@ namespace Codepass
       </Setter>
     </Style>
 
+    <Style x:Key='HistoryTab' TargetType='Button' BasedOn='{StaticResource SideNavBtn}'>
+      <Setter Property='Height' Value='36'/>
+      <Setter Property='FontSize' Value='14'/>
+      <Setter Property='Padding' Value='12,0'/>
+      <Setter Property='Margin' Value='0,0,8,12'/>
+      <Style.Triggers>
+        <Trigger Property='Tag' Value='On'>
+          <Setter Property='Foreground' Value='#0078D4'/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
     <Style x:Key='CaptionBtn' TargetType='Button'>
       <Setter Property='Width' Value='42'/>
       <Setter Property='Height' Value='30'/>
@@ -886,8 +932,9 @@ namespace Codepass
         <Border Grid.Column='0' Background='#F3F3F3' BorderBrush='#0F000000' BorderThickness='0,0,1,0' Padding='8,18'>
           <StackPanel>
             <Button x:Name='navHistory' Style='{StaticResource SideNavBtn}' Content='记录'/>
-            <Button x:Name='navGeneral' Style='{StaticResource SideNavBtn}' Content='常规设置'/>
-            <Button x:Name='navSecurity' Style='{StaticResource SideNavBtn}' Content='安全设置'/>
+            <Button x:Name='navGeneral' Style='{StaticResource SideNavBtn}' Content='短信设置'/>
+            <Button x:Name='navEmail' Style='{StaticResource SideNavBtn}' Content='邮箱设置'/>
+            <Button x:Name='navSecurity' Style='{StaticResource SideNavBtn}' Content='隐私设置'/>
             <Button x:Name='navAbout' Style='{StaticResource SideNavBtn}' Content='关于'/>
           </StackPanel>
         </Border>
@@ -897,7 +944,30 @@ namespace Codepass
           <ScrollViewer x:Name='settingsScroll' VerticalScrollBarVisibility='Auto'>
             <StackPanel Margin='22,20,22,22'>
 
-              <Border x:Name='cardGeneral' Style='{StaticResource Card}'>
+              <Border Background='#FFF4CE' CornerRadius='6' Padding='10' Margin='0,0,0,12' x:Name='storageErrorBanner' Visibility='Collapsed'>
+                <StackPanel>
+                  <TextBlock x:Name='lblStorageError' TextWrapping='Wrap' Foreground='#8A4B08' FontSize='12'/>
+                  <Button x:Name='btnStorageRetry' Style='{StaticResource SecondaryBtn}' Content='重试保存与邮件检查' HorizontalAlignment='Left' Margin='0,8,0,0'/>
+                </StackPanel>
+              </Border>
+
+               <Border x:Name='cardEmailStatus' Style='{StaticResource Card}' Visibility='Collapsed'>
+                 <StackPanel>
+                   <TextBlock Style='{StaticResource CardTitle}' Text='邮箱实时状态'/>
+                   <Border Background='#E8F2FC' CornerRadius='6' Padding='12'>
+                     <TextBlock x:Name='lblEmailStatus' Foreground='#005A9E' FontSize='14' FontWeight='SemiBold' TextWrapping='Wrap' Text='尚未连接'/>
+                   </Border>
+                   <TextBlock x:Name='lblEmailFolders' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,8,0,0'/>
+                   <TextBlock x:Name='lblEmailProcessing' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,5,0,0'/>
+                   <WrapPanel Margin='0,12,0,0'>
+                     <Button x:Name='btnEmailTest' Style='{StaticResource SecondaryBtn}' Content='测试邮箱连接' Margin='0,0,8,6'/>
+                     <Button x:Name='btnEmailRecheck' Style='{StaticResource SecondaryBtn}' Content='重新检查近 30 分钟' Margin='0,0,8,6'/>
+                   </WrapPanel>
+                   <TextBlock x:Name='lblEmailTestResult' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,5,0,0'/>
+                 </StackPanel>
+               </Border>
+
+               <Border x:Name='cardGeneral' Style='{StaticResource Card}'>
                 <StackPanel>
                   <TextBlock Style='{StaticResource CardTitle}' Text='电脑端接收'/>
                   <Grid>
@@ -918,7 +988,7 @@ namespace Codepass
                      <StackPanel x:Name='tokenHost' Grid.Row='1' Grid.Column='1' Orientation='Horizontal' VerticalAlignment='Center'/>
 
                      <CheckBox x:Name='chkStartup' Grid.Row='2' Grid.Column='1'
-                               Content='随 Windows 启动 codepass（修改后自动保存）'
+                               Content='随 Windows 静默启动 codepass（驻留托盘）'
                                Foreground='#E4000000' FontSize='14' VerticalAlignment='Center'/>
                   </Grid>
                   <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
@@ -928,26 +998,25 @@ namespace Codepass
 
               <Border x:Name='cardNetwork' Style='{StaticResource Card}'>
                 <StackPanel>
-                  <TextBlock Style='{StaticResource CardTitle}' Text='手机端连接设置'/>
+                  <TextBlock Style='{StaticResource CardTitle}' Text='手机连接与验证码处理'/>
                   <Grid>
                     <Grid.ColumnDefinitions>
                       <ColumnDefinition Width='150'/>
                       <ColumnDefinition Width='*'/>
                     </Grid.ColumnDefinitions>
                      <Grid.RowDefinitions>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
+                      <RowDefinition Height='42'/>
+                      <RowDefinition Height='42'/>
+                      <RowDefinition Height='42'/>
+                      <RowDefinition Height='42'/>
                      </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='电脑 IPv4 地址'/>
-                    <StackPanel Grid.Row='0' Grid.Column='1' Orientation='Horizontal' VerticalAlignment='Center'>
+                    <WrapPanel Grid.Row='0' Grid.Column='1' VerticalAlignment='Center'>
                        <TextBox x:Name='txtPcIp' Style='{StaticResource Input}' Width='300'/>
-                       <Button x:Name='btnDetect' Style='{StaticResource SecondaryBtn}' Content='检测本机地址' Margin='10,0,0,0'/>
-                       <Button x:Name='btnTestPc' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='10,0,0,0'/>
-                    </StackPanel>
+                       <Button x:Name='btnDetect' Style='{StaticResource SecondaryBtn}' Content='检测本机地址' Margin='8,0,0,6'/>
+                       <Button x:Name='btnTestPc' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='8,0,0,6'/>
+                    </WrapPanel>
 
                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='验证码长度'/>
                     <StackPanel Grid.Row='1' Grid.Column='1' Orientation='Horizontal' VerticalAlignment='Center'>
@@ -964,15 +1033,12 @@ namespace Codepass
 
                     <TextBlock Grid.Row='3' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='桌面通知'/>
                      <CheckBox x:Name='chkTip' Grid.Row='3' Grid.Column='1' Content='收到验证码后显示通知' Foreground='#E4000000' FontSize='14' VerticalAlignment='Center'/>
-                     <TextBlock Grid.Row='4' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='隐私保护'/>
-                       <ComboBox x:Name='cmbPrivacy' Grid.Row='4' Grid.Column='1' Height='32' FontSize='14' Width='300' HorizontalAlignment='Left'
-                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
-                       <ComboBoxItem Content='只提示收到，不显示内容'/>
-                       <ComboBoxItem Content='显示内容，验证码替换为星号'/>
-                       <ComboBoxItem Content='完整显示短信内容'/>
-                     </ComboBox>
                    </Grid>
-                   <TextBlock Style='{StaticResource CardTitle}' Text='公网中转（ntfy）' Margin='0,18,0,10'/>
+                  </StackPanel>
+                </Border>
+                <Border x:Name='cardNtfy' Style='{StaticResource Card}'>
+                  <StackPanel>
+                   <TextBlock Style='{StaticResource CardTitle}' Text='公网中转（ntfy，可选）'/>
                    <Grid>
                      <Grid.ColumnDefinitions>
                        <ColumnDefinition Width='150'/>
@@ -985,21 +1051,40 @@ namespace Codepass
                      </Grid.RowDefinitions>
 
                      <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='服务器地址'/>
-                     <StackPanel Grid.Row='0' Grid.Column='1' Orientation='Horizontal' VerticalAlignment='Center'>
-                        <TextBox x:Name='txtNtfyServer' Style='{StaticResource Input}' Width='300'/>
-                       <Button x:Name='btnTestNtfy' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='10,0,0,0'/>
-                     </StackPanel>
+                     <WrapPanel Grid.Row='0' Grid.Column='1' VerticalAlignment='Center'>
+                         <TextBox x:Name='txtNtfyServer' Style='{StaticResource Input}' Width='300'/>
+                        <Button x:Name='btnTestNtfy' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='8,0,0,6'/>
+                     </WrapPanel>
 
                      <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='主题名称'/>
-                     <StackPanel Grid.Row='1' Grid.Column='1' Orientation='Horizontal' VerticalAlignment='Center'>
-                        <TextBox x:Name='txtNtfyTopic' Style='{StaticResource Input}' Width='300'/>
-                       <TextBlock Style='{StaticResource Hint}' Text='留空表示停用' Margin='10,0,0,0'/>
-                     </StackPanel>
+                     <WrapPanel Grid.Row='1' Grid.Column='1' VerticalAlignment='Center'>
+                         <TextBox x:Name='txtNtfyTopic' Style='{StaticResource Input}' Width='300'/>
+                        <TextBlock Style='{StaticResource Hint}' Text='留空表示停用' Margin='10,0,0,0'/>
+                     </WrapPanel>
 
                      <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='访问令牌'/>
                       <StackPanel x:Name='ntfyTokenHost' Grid.Row='2' Grid.Column='1' Orientation='Horizontal' VerticalAlignment='Center'/>
                     </Grid>
-                    <TextBlock Style='{StaticResource CardTitle}' Text='信息过滤（可选）' Margin='0,18,0,10'/>
+                  </StackPanel>
+                </Border>
+                <Border x:Name='cardSmsFilters' Style='{StaticResource Card}'>
+                  <StackPanel>
+                    <TextBlock Style='{StaticResource CardTitle}' Text='短信过滤规则（可选）'/>
+                    <Grid Margin='0,0,0,12'>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width='150'/>
+                        <ColumnDefinition Width='*'/>
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Column='0' Style='{StaticResource FieldLabel}' Text='短信长度上限' VerticalAlignment='Top' Margin='0,8,0,0'/>
+                      <StackPanel Grid.Column='1'>
+                        <StackPanel Orientation='Horizontal'>
+                          <TextBox x:Name='txtSmsMaxLength' Style='{StaticResource Input}' Width='96'/>
+                          <TextBlock Style='{StaticResource Hint}' Text='字符（1～10000）' Margin='10,0,0,0'/>
+                        </StackPanel>
+                        <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,6,0,0'
+                                   Text='推荐 500 字符；超过上限整条忽略，不记入历史、不提示、不复制。仅作用于短信，空格和换行也计入。'/>
+                      </StackPanel>
+                    </Grid>
                     <Grid>
                       <Grid.ColumnDefinitions>
                         <ColumnDefinition Width='150'/>
@@ -1029,7 +1114,168 @@ namespace Codepass
                   </StackPanel>
                </Border>
 
-               <Border x:Name='cardNotify' Style='{StaticResource Card}' Visibility='Collapsed'/>
+               <Border x:Name='cardEmail' Style='{StaticResource Card}'>
+                 <StackPanel>
+                   <TextBlock Style='{StaticResource CardTitle}' Text='邮箱连接'/>
+                   <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,0,0,12'
+                              Text='通过 IMAP 接收新邮件中的验证码；设置修改后自动保存，无需重启。'/>
+                   <Grid>
+                     <Grid.ColumnDefinitions>
+                       <ColumnDefinition Width='140'/>
+                       <ColumnDefinition Width='*'/>
+                     </Grid.ColumnDefinitions>
+                     <Grid.RowDefinitions>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                     </Grid.RowDefinitions>
+
+                     <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='启用邮箱接收'/>
+                     <CheckBox x:Name='chkEmail' Grid.Row='0' Grid.Column='1' Content='接收邮箱里的验证码邮件' Foreground='#E4000000' FontSize='14' Height='32' Margin='0,8' VerticalAlignment='Top'/>
+
+                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='邮箱服务'/>
+                     <ComboBox x:Name='cmbEmailProvider' Grid.Row='1' Grid.Column='1' Height='32' FontSize='14' Width='300' HorizontalAlignment='Left'
+                               Margin='0,8' VerticalAlignment='Top'
+                               Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
+                       <ComboBoxItem Content='QQ 邮箱'/>
+                       <ComboBoxItem Content='163 邮箱'/>
+                       <ComboBoxItem Content='126 邮箱'/>
+                       <ComboBoxItem Content='Gmail'/>
+                       <ComboBoxItem Content='Outlook'/>
+                       <ComboBoxItem Content='自定义'/>
+                     </ComboBox>
+
+                     <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='服务器地址'/>
+                     <StackPanel Grid.Row='2' Grid.Column='1' Margin='0,8'>
+                       <TextBox x:Name='txtEmailServer' Style='{StaticResource Input}' Width='300' HorizontalAlignment='Left'/>
+                       <TextBlock Style='{StaticResource Hint}' Text='使用 993 端口，通过 SSL 加密连接' Margin='0,5,0,0' TextWrapping='Wrap'/>
+                     </StackPanel>
+
+                     <TextBlock Grid.Row='3' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='邮箱账号'/>
+                     <TextBox x:Name='txtEmailAccount' Grid.Row='3' Grid.Column='1' Style='{StaticResource Input}' Width='300' HorizontalAlignment='Left' Margin='0,8' VerticalAlignment='Top'/>
+
+                     <TextBlock Grid.Row='4' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='授权码 / 应用密码'/>
+                     <StackPanel Grid.Row='4' Grid.Column='1' Margin='0,8'>
+                       <StackPanel x:Name='emailAuthHost' Orientation='Horizontal'/>
+                       <TextBlock x:Name='emailAuthHint' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,5,0,0'/>
+                     </StackPanel>
+
+                   </Grid>
+                   <TextBlock x:Name='emailProviderHint' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,14,0,0'/>
+                   <Button x:Name='btnEmailAuthHelp' Style='{StaticResource SecondaryBtn}' Content='打开 Google 应用专用密码设置'
+                           HorizontalAlignment='Left' Margin='0,10,0,0' Visibility='Collapsed'/>
+                    <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
+                               Text='授权码 / 应用密码采用 Windows 加密存储。只处理启用后新到的邮件，不改动已读状态。'/>
+                     <Button x:Name='btnEmailGuide' Style='{StaticResource SecondaryBtn}' Content='Gmail 设置教程' HorizontalAlignment='Left' Margin='0,12,0,0'/>
+                 </StackPanel>
+               </Border>
+
+               <Border x:Name='cardEmailFilters' Style='{StaticResource Card}'>
+                 <StackPanel>
+                    <TextBlock Style='{StaticResource CardTitle}' Text='邮件接收规则'/>
+                   <Grid>
+                     <Grid.ColumnDefinitions>
+                       <ColumnDefinition Width='140'/>
+                       <ColumnDefinition Width='*'/>
+                     </Grid.ColumnDefinitions>
+                     <Grid.RowDefinitions>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                       <RowDefinition Height='Auto'/>
+                     </Grid.RowDefinitions>
+
+                     <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='主题关键词'/>
+                     <StackPanel Grid.Row='0' Grid.Column='1' Margin='0,8'>
+                       <WrapPanel x:Name='emailKeywordTags'/>
+                        <WrapPanel Margin='0,4,0,0'>
+                         <TextBox x:Name='txtEmailKeywordAdd' Style='{StaticResource Input}' Width='210' ToolTip='输入关键词，按回车添加；支持粘贴多行'/>
+                          <Button x:Name='btnEmailKeywordAdd' Style='{StaticResource SecondaryBtn}' Content='添加' Margin='8,0,0,6'/>
+                          <Button x:Name='btnEmailKeywordDefault' Style='{StaticResource SecondaryBtn}' Content='恢复默认' Margin='8,0,0,6'/>
+                        </WrapPanel>
+                       <Expander Header='批量编辑（每行一个关键词）' FontSize='12.5' Margin='0,8,0,0'>
+                       <TextBox x:Name='txtEmailKeywords' Style='{StaticResource Input}' Margin='0,6,0,0'
+                                 Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                                 AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                        </Expander>
+                        <Expander Header='测试主题匹配' FontSize='12.5' Margin='0,8,0,0'>
+                          <StackPanel>
+                            <TextBox x:Name='txtEmailSubjectPreview' Style='{StaticResource Input}' Margin='0,6,0,0' ToolTip='输入示例邮件主题，只在本机预览规则'/>
+                            <TextBlock x:Name='lblEmailPreviewResult' Style='{StaticResource Hint}' Margin='0,5,0,0' Text='输入主题查看是否会被接收'/>
+                          </StackPanel>
+                        </Expander>
+                       <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='主题包含任一标签才读取正文；留空不接收邮件。' Margin='0,6,0,0'/>
+                     </StackPanel>
+
+                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='发件人白名单'/>
+                     <StackPanel Grid.Row='1' Grid.Column='1' Margin='0,8'>
+                       <TextBox x:Name='txtEmailSenders' Style='{StaticResource Input}'
+                                Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                                AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                        <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='每行填写完整邮箱或完整域名，例如 noreply@example.com / example.com；精确匹配，留空不限发件人。From 地址不等于已认证身份。' Margin='0,5,0,0'/>
+                     </StackPanel>
+
+                     <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='接收选项'/>
+                     <WrapPanel x:Name='emailReceiveOptions' Grid.Row='2' Grid.Column='1' Margin='0,8'>
+                       <CheckBox x:Name='chkEmailNotify' Content='到达提示' Foreground='#E4000000' FontSize='14' Height='32' Margin='0,0,20,0'/>
+                       <CheckBox x:Name='chkEmailAutoCopy' Content='自动复制' Foreground='#E4000000' FontSize='14' Height='32'/>
+                     </WrapPanel>
+                    </Grid>
+                 </StackPanel>
+               </Border>
+
+               <Border x:Name='cardQqPopup' Style='{StaticResource Card}'>
+                 <StackPanel>
+                     <TextBlock Style='{StaticResource CardTitle}' Text='邮箱高级设置'/>
+                     <Grid>
+                       <Grid.ColumnDefinitions><ColumnDefinition Width='140'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                       <TextBlock Style='{StaticResource EmailFieldLabel}' Text='检查间隔'/>
+                       <StackPanel Grid.Column='1' Margin='0,8'>
+                         <StackPanel Orientation='Horizontal'>
+                           <TextBox x:Name='txtEmailPoll' Style='{StaticResource Input}' Width='96'/>
+                           <TextBlock Style='{StaticResource Hint}' Text='秒（10～600）' Margin='10,0,0,0'/>
+                         </StackPanel>
+                         <TextBlock Style='{StaticResource Hint}' Text='收件箱支持 IDLE 时实时接收；分类目录按间隔检查。排除已发送、草稿和已删除。' TextWrapping='Wrap' Margin='0,5,0,0'/>
+                       </StackPanel>
+                     </Grid>
+                     <CheckBox x:Name='chkEmailJunk' Content='同时检查垃圾 / 广告文件夹' FontSize='14' Margin='0,12,0,0'/>
+                     <CheckBox x:Name='chkEmailSaveBody' Content='在记录中保存邮件内容（正文最多 20000 字符）' FontSize='14' Margin='0,12,0,0'/>
+                     <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='默认仅保存发件人和验证码；历史采用当前 Windows 用户加密，换机或换用户不可直接读取。旧版明文记录下次成功保存时迁移。' Margin='0,6,0,0'/>
+                     <TextBlock Style='{StaticResource CardTitle}' Text='QQ 弹窗联动（可选）' Margin='0,18,0,10'/>
+                     <CheckBox x:Name='chkQqPopup' Content='QQ 新邮件提醒出现时，立即检查已配置的邮箱' Foreground='#E4000000' FontSize='14'/>
+                    <TextBlock x:Name='lblQqPopupRisk' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,6,0,0'
+                              Text='需要先配置并启用 IMAP；仅以 QQ 邮件提醒窗口标题唤醒检查，不读取聊天或弹窗正文。'/>
+                    <TextBlock x:Name='lblQqStatus' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,6,0,0'/>
+                 </StackPanel>
+               </Border>
+
+                <Border x:Name='cardNotify' Style='{StaticResource Card}' Visibility='Collapsed'>
+                  <StackPanel>
+                    <TextBlock Style='{StaticResource CardTitle}' Text='通知隐私'/>
+                    <Grid>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='150'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <TextBlock Grid.Row='0' Style='{StaticResource FieldLabel}' Text='短信通知内容'/>
+                      <ComboBox x:Name='cmbPrivacy' Grid.Row='0' Grid.Column='1' Height='32' FontSize='14' MaxWidth='340' HorizontalAlignment='Stretch' Margin='0,0,0,12'
+                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
+                        <ComboBoxItem Content='只提示收到，不显示内容'/>
+                        <ComboBoxItem Content='显示内容，验证码替换为星号'/>
+                        <ComboBoxItem Content='完整显示短信内容'/>
+                      </ComboBox>
+                      <TextBlock Grid.Row='1' Style='{StaticResource FieldLabel}' Text='邮件通知内容'/>
+                      <ComboBox x:Name='cmbEmailPrivacy' Grid.Row='1' Grid.Column='1' Height='32' FontSize='14' MaxWidth='340' HorizontalAlignment='Stretch'
+                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
+                        <ComboBoxItem Content='只提示收到，不显示内容'/>
+                        <ComboBoxItem Content='显示内容，验证码替换为星号'/>
+                        <ComboBoxItem Content='完整显示邮件内容'/>
+                      </ComboBox>
+                    </Grid>
+                    <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,12,0,0' Text='两种通道分别设置，默认只提示收到。此处控制桌面通知，不影响剪贴板或记录原文；记录页可用下方密码锁保护。'/>
+                  </StackPanel>
+                </Border>
 
               <Border x:Name='cardSecurity' Style='{StaticResource Card}'>
                 <StackPanel>
@@ -1037,7 +1283,7 @@ namespace Codepass
                   <CheckBox x:Name='chkAutoLock' Content='启用自动锁定（启动、重开窗口、最小化时需解锁）'
                             Foreground='#E4000000' FontSize='14'/>
                    <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
-                              Text='密码锁仅保护界面，不加密磁盘文件。自动锁定默认关闭；关闭时启动、重开窗口及最小化都不会要求解锁，可用“立即锁定”手动锁定。'/>
+                              Text='密码锁保护界面；历史由当前 Windows 用户加密，与密码锁独立，配置和日志仍需妥善保护。自动锁定默认关闭，也可手动立即锁定。'/>
                    <Button x:Name='btnSecurity' Style='{StaticResource SecondaryBtn}' Content='管理密码锁' HorizontalAlignment='Left' Margin='0,14,0,0'/>
                    <Button x:Name='btnLock' Style='{StaticResource SecondaryBtn}' Content='立即锁定' HorizontalAlignment='Left' Margin='0,14,0,0'/>
                  </StackPanel>
@@ -1046,12 +1292,12 @@ namespace Codepass
               <Border x:Name='cardMore' Style='{StaticResource Card}'>
                 <StackPanel>
                   <TextBlock Style='{StaticResource CardTitle}' Text='配置管理'/>
-                  <StackPanel Orientation='Horizontal'>
-                    <Button x:Name='btnGen' Style='{StaticResource SecondaryBtn}' Content='复制手机端配置'/>
-                    <Button x:Name='btnImport' Style='{StaticResource SecondaryBtn}' Content='导入设置' Margin='10,0,0,0'/>
-                    <Button x:Name='btnExport' Style='{StaticResource SecondaryBtn}' Content='导出设置' Margin='10,0,0,0'/>
-                  </StackPanel>
-                  <TextBlock Style='{StaticResource Hint}' Text='设置修改后自动保存；端口 / ntfy 修改后请重启。' Margin='0,10,0,0'/>
+                   <WrapPanel>
+                     <Button x:Name='btnGen' Style='{StaticResource SecondaryBtn}' Content='复制手机端配置'/>
+                     <Button x:Name='btnImport' Style='{StaticResource SecondaryBtn}' Content='导入设置' Margin='10,0,0,6'/>
+                     <Button x:Name='btnExport' Style='{StaticResource SecondaryBtn}' Content='导出设置' Margin='10,0,0,6'/>
+                   </WrapPanel>
+                   <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='设置修改后自动保存；端口 / ntfy 修改后请重启。导出设置用于迁移，排障请使用“关于”中的脱敏诊断。' Margin='0,10,0,0'/>
                 </StackPanel>
               </Border>
 
@@ -1068,20 +1314,36 @@ namespace Codepass
 
           <Border Grid.Row='0' Style='{StaticResource RecordCard}'>
             <Grid>
-              <Grid.RowDefinitions>
-                <RowDefinition Height='Auto'/>
-                <RowDefinition Height='Auto'/>
-                <RowDefinition Height='*'/>
+               <Grid.RowDefinitions>
+                  <RowDefinition Height='Auto'/>
+                  <RowDefinition Height='Auto'/>
+                  <RowDefinition Height='Auto'/>
+                  <RowDefinition Height='Auto'/>
+                  <RowDefinition Height='*'/>
               </Grid.RowDefinitions>
 
               <TextBlock Grid.Row='0' Style='{StaticResource CardTitle}' Text='验证码记录'/>
 
-              <Grid Grid.Row='1' Height='30'>
+              <WrapPanel Grid.Row='1'>
+                <Button x:Name='tabAllHistory' Style='{StaticResource HistoryTab}' Content='全部 (0)'/>
+                <Button x:Name='tabSmsHistory' Style='{StaticResource HistoryTab}' Content='短信 (0)'/>
+                <Button x:Name='tabEmailHistory' Style='{StaticResource HistoryTab}' Content='邮件 (0)'/>
+              </WrapPanel>
+              <StackPanel Grid.Row='2' Margin='0,8,0,10'>
+              <TextBlock Style='{StaticResource Hint}' Text='搜索服务名、发件人、验证码或已保存原文；空格分隔多个词' TextWrapping='Wrap' Margin='0,0,0,6'/>
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                <TextBox x:Name='txtHistorySearch' Style='{StaticResource Input}' ToolTip='搜索服务名、发件人、验证码或已保存原文；多个词以空格分隔' AutomationProperties.Name='搜索验证码记录' MaxLength='256'/>
+                <Button x:Name='btnHistoryReset' Grid.Column='1' Style='{StaticResource SecondaryBtn}' Content='重置筛选' Margin='8,0,0,0'/>
+              </Grid>
+              </StackPanel>
+
+              <Grid Grid.Row='3' Height='30'>
                 <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width='140'/>
-                  <ColumnDefinition Width='80'/>
-                  <ColumnDefinition Width='120'/>
+                  <ColumnDefinition Width='128'/>
                   <ColumnDefinition Width='*'/>
+                  <ColumnDefinition Width='100'/>
+                  <ColumnDefinition Width='2*'/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column='0' Style='{StaticResource TableHeader}' Text='时间'/>
                  <TextBlock Grid.Column='1' Style='{StaticResource TableHeader}' Text='发件人'/>
@@ -1089,19 +1351,31 @@ namespace Codepass
                 <TextBlock Grid.Column='3' Style='{StaticResource TableHeader}' Text='原文'/>
               </Grid>
 
-              <Border Grid.Row='2' BorderBrush='#0F000000' BorderThickness='0,1,0,0'>
-                <ScrollViewer VerticalScrollBarVisibility='Auto' Margin='0,4,0,0'>
-                  <StackPanel x:Name='listHost'/>
-                </ScrollViewer>
+              <Border Grid.Row='4' BorderBrush='#0F000000' BorderThickness='0,1,0,0'>
+                <Grid>
+                  <ScrollViewer x:Name='historyScroll' VerticalScrollBarVisibility='Auto' Margin='0,4,0,0'>
+                    <StackPanel x:Name='listHost'/>
+                  </ScrollViewer>
+                  <TextBlock x:Name='lblHistoryEmpty' Style='{StaticResource Hint}' HorizontalAlignment='Center'
+                             VerticalAlignment='Center' Text='暂无短信验证码记录' IsHitTestVisible='False' Visibility='Collapsed'/>
+                </Grid>
               </Border>
             </Grid>
           </Border>
 
           <Border Grid.Row='1' Background='Transparent' BorderBrush='#0F000000' BorderThickness='0,1,0,0' Padding='22,12'>
-            <StackPanel Orientation='Horizontal'>
-               <Button x:Name='btnClear' Style='{StaticResource SecondaryBtn}' Content='清空记录' Margin='10,0,0,0'/>
+            <StackPanel>
+              <WrapPanel Margin='0,0,0,10'>
+                <TextBlock Text='自动清除超过' Style='{StaticResource Hint}' Margin='0,0,8,0'/>
+                <TextBox x:Name='txtHistoryRetention' Style='{StaticResource Input}' Width='72' MaxLength='5' AutomationProperties.Name='记录自动清除分钟数'/>
+                <TextBlock Text='分钟前收到的记录' Style='{StaticResource Hint}' Margin='8,0,0,0'/>
+              </WrapPanel>
+              <TextBlock Text='短信与邮件记录一起清理；默认 10 分钟，0 停用。不删除邮箱里的邮件。' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,0,0,10'/>
+            <WrapPanel>
+                <Button x:Name='btnClear' Style='{StaticResource SecondaryBtn}' Content='清空全部记录'/>
               <TextBlock Style='{StaticResource Hint}' Text='单击验证码即可复制' Margin='14,0,0,0'/>
               <TextBlock x:Name='lblCount' Style='{StaticResource Hint}' Margin='14,0,0,0' Text='共 0 条'/>
+            </WrapPanel>
             </StackPanel>
           </Border>
         </Grid>
@@ -1112,17 +1386,24 @@ namespace Codepass
                 <Border Style='{StaticResource Card}'>
                   <StackPanel>
                     <TextBlock x:Name='lblAboutVersion' Foreground='#E4000000' FontSize='14' Text='codepass'/>
-                    <StackPanel Orientation='Horizontal' Margin='0,16,0,0'>
+                     <WrapPanel Margin='0,16,0,0'>
                       <Button x:Name='btnGithub' Style='{StaticResource SecondaryBtn}' Content='打开 GitHub 主页'/>
                       <Button x:Name='btnUpdate' Style='{StaticResource SecondaryBtn}' Content='检查更新' Margin='10,0,0,0'/>
-                    </StackPanel>
+                     </WrapPanel>
                     <TextBlock x:Name='lblUpdateStatus' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
                                Text='尚未检查更新'/>
                   </StackPanel>
                 </Border>
-              </StackPanel>
-            </ScrollViewer>
-          </Grid>
+                 <Border Style='{StaticResource Card}'>
+                   <StackPanel>
+                     <TextBlock Style='{StaticResource CardTitle}' Text='排障与诊断'/>
+                     <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='预览并导出脱敏报告：版本、功能开关、记录数量与归类状态。报告不含验证码、正文、账号、地址、令牌或原始日志。'/>
+                     <Button x:Name='btnDiagnostics' Style='{StaticResource SecondaryBtn}' Content='预览脱敏诊断' HorizontalAlignment='Left' Margin='0,14,0,0'/>
+                   </StackPanel>
+                 </Border>
+               </StackPanel>
+             </ScrollViewer>
+           </Grid>
 
         </Grid>
 
@@ -1163,7 +1444,7 @@ namespace Codepass
              AllowsTransparency = true;
                 ResizeMode = ResizeMode.CanResize;
              Background = Brushes.Transparent;
-             MinWidth = 960;
+              MinWidth = 780;
              MinHeight = 560;
              ApplyConfiguredWindowSize();
              WindowChrome chrome = new WindowChrome();
@@ -1216,10 +1497,17 @@ namespace Codepass
              if (appLogo != null && iconSource != null) appLogo.Source = iconSource;
 
              txtPort       = Find<TextBox>(root, "txtPort");
+             txtHistorySearch = Find<TextBox>(root, "txtHistorySearch");
+             txtHistoryRetention = Find<TextBox>(root, "txtHistoryRetention");
+             tabAllHistory = Find<Button>(root, "tabAllHistory");
+             cardEmailStatus = Find<Border>(root, "cardEmailStatus");
+             cardNtfy = Find<Border>(root, "cardNtfy");
+             cardSmsFilters = Find<Border>(root, "cardSmsFilters");
              txtPcIp       = Find<TextBox>(root, "txtPcIp");
               txtNtfyServer = Find<TextBox>(root, "txtNtfyServer");
              txtNtfyTopic  = Find<TextBox>(root, "txtNtfyTopic");
             txtMin        = Find<TextBox>(root, "txtMin");
+            txtSmsMaxLength = Find<TextBox>(root, "txtSmsMaxLength");
               txtMax        = Find<TextBox>(root, "txtMax");
               txtClear      = Find<TextBox>(root, "txtClear");
               txtFilterKeywords = Find<TextBox>(root, "txtFilterKeywords");
@@ -1227,14 +1515,20 @@ namespace Codepass
               chkTip        = Find<CheckBox>(root, "chkTip");
               chkStartup    = Find<CheckBox>(root, "chkStartup");
               chkAutoLock   = Find<CheckBox>(root, "chkAutoLock");
-             cmbPrivacy    = Find<ComboBox>(root, "cmbPrivacy");
+              cmbPrivacy    = Find<ComboBox>(root, "cmbPrivacy");
+              cmbEmailPrivacy = Find<ComboBox>(root, "cmbEmailPrivacy");
              btnTestPc     = Find<Button>(root, "btnTestPc");
              btnTestNtfy   = Find<Button>(root, "btnTestNtfy");
              btnLock       = Find<Button>(root, "btnLock");
              listHost      = Find<StackPanel>(root, "listHost");
-            lblCount      = Find<TextBlock>(root, "lblCount");
+             lblCount      = Find<TextBlock>(root, "lblCount");
+             lblHistoryEmpty = Find<TextBlock>(root, "lblHistoryEmpty");
+             tabSmsHistory = Find<Button>(root, "tabSmsHistory");
+             tabEmailHistory = Find<Button>(root, "tabEmailHistory");
+             historyScroll = Find<ScrollViewer>(root, "historyScroll");
             navHistory   = Find<Button>(root, "navHistory");
-            navGeneral   = Find<Button>(root, "navGeneral");
+             navGeneral   = Find<Button>(root, "navGeneral");
+             navEmail     = Find<Button>(root, "navEmail");
             navSecurity  = Find<Button>(root, "navSecurity");
             navAbout     = Find<Button>(root, "navAbout");
             pageSet       = Find<Grid>(root, "pageSet");
@@ -1246,6 +1540,30 @@ namespace Codepass
             cardNotify    = Find<Border>(root, "cardNotify");
             cardSecurity  = Find<Border>(root, "cardSecurity");
             cardMore      = Find<Border>(root, "cardMore");
+              cardEmail     = Find<Border>(root, "cardEmail");
+              cardEmailFilters = Find<Border>(root, "cardEmailFilters");
+              cardQqPopup = Find<Border>(root, "cardQqPopup");
+              emailAuthHint = Find<TextBlock>(root, "emailAuthHint");
+              emailProviderHint = Find<TextBlock>(root, "emailProviderHint");
+               btnEmailAuthHelp = Find<Button>(root, "btnEmailAuthHelp");
+               txtEmailKeywordAdd = Find<TextBox>(root, "txtEmailKeywordAdd");
+               emailKeywordTags = Find<WrapPanel>(root, "emailKeywordTags");
+             txtEmailServer = Find<TextBox>(root, "txtEmailServer");
+             txtEmailAccount = Find<TextBox>(root, "txtEmailAccount");
+             txtEmailPoll = Find<TextBox>(root, "txtEmailPoll");
+             txtEmailKeywords = Find<TextBox>(root, "txtEmailKeywords");
+             txtEmailSenders = Find<TextBox>(root, "txtEmailSenders");
+             chkEmail = Find<CheckBox>(root, "chkEmail");
+             chkEmailJunk = Find<CheckBox>(root, "chkEmailJunk");
+             chkEmailNotify = Find<CheckBox>(root, "chkEmailNotify");
+              chkEmailAutoCopy = Find<CheckBox>(root, "chkEmailAutoCopy");
+              chkEmailSaveBody = Find<CheckBox>(root, "chkEmailSaveBody");
+              lblEmailStatus = Find<TextBlock>(root, "lblEmailStatus");
+              btnEmailTest = Find<Button>(root, "btnEmailTest");
+              txtEmailSubjectPreview = Find<TextBox>(root, "txtEmailSubjectPreview");
+              lblEmailPreviewResult = Find<TextBlock>(root, "lblEmailPreviewResult");
+             chkQqPopup = Find<CheckBox>(root, "chkQqPopup");
+             cmbEmailProvider = Find<ComboBox>(root, "cmbEmailProvider");
              dragBar       = Find<Border>(root, "dragBar");
              lockOverlay   = Find<Border>(root, "lockOverlay");
              txtUnlockPassword = Find<PasswordBox>(root, "txtUnlockPassword");
@@ -1262,7 +1580,17 @@ namespace Codepass
               lblUpdateStatus = Find<TextBlock>(root, "lblUpdateStatus");
               if (lblAboutVersion != null)
                    lblAboutVersion.Text = "codepass v" + Updater.AppVersion;
-             BuildSecretFields(root);
+              lblEmailFolders = Find<TextBlock>(root, "lblEmailFolders");
+              lblEmailProcessing = Find<TextBlock>(root, "lblEmailProcessing");
+              lblEmailTestResult = Find<TextBlock>(root, "lblEmailTestResult");
+              lblStorageError = Find<TextBlock>(root, "lblStorageError");
+              lblQqStatus = Find<TextBlock>(root, "lblQqStatus");
+              BuildSecretFields(root);
+              InitializeResponsiveForms(pageSet);
+              settingsScroll.SizeChanged += delegate { UpdateResponsiveForms(); };
+              Loaded += delegate { UpdateResponsiveForms(); };
+              TextBlock qqRisk = Find<TextBlock>(root, "lblQqPopupRisk");
+              if (qqRisk != null) qqRisk.Text = "仅以邮件提醒窗口标题唤醒 IMAP；不读取弹窗或聊天正文，不直接提取验证码。需要先配置邮箱，最终仍执行主题、发件人与时效规则。";
              if (btnLock != null) btnLock.Click += delegate { LockWindow(); };
 
             // 顶栏拖动 + 窗口按钮
@@ -1286,19 +1614,61 @@ namespace Codepass
              Wire(root, "btnSecurity", delegate { ConfigureSecurity(); });
              Wire(root, "btnUnlock", delegate { TryUnlock(); });
               Wire(root, "btnGithub", delegate { OpenRepoPage(); });
-              Wire(root, "btnUpdate", delegate { CheckUpdate(); });
+               Wire(root, "btnUpdate", delegate { CheckUpdate(); });
+               Wire(root, "btnEmailAuthHelp", delegate
+               {
+                   try { Process.Start(new ProcessStartInfo("https://myaccount.google.com/apppasswords") { UseShellExecute = true }); }
+                   catch { ShowToast("无法打开浏览器，请在 Google 账号设置中查找应用专用密码"); }
+               });
+               Wire(root, "tabSmsHistory", delegate { SelectHistoryChannel("sms"); });
+               Wire(root, "tabEmailHistory", delegate { SelectHistoryChannel("email"); });
+               Wire(root, "tabAllHistory", delegate { SelectHistoryChannel("all"); });
+               Wire(root, "btnHistoryReset", delegate { txtHistorySearch.Clear(); SelectHistoryChannel("all"); });
+               txtHistorySearch.TextChanged += delegate { RefreshHistory(); if (historyScroll != null) historyScroll.ScrollToTop(); };
+               txtHistorySearch.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
+               { if (e.Key == Key.Escape) { txtHistorySearch.Clear(); e.Handled = true; } };
+               Wire(root, "btnDiagnostics", delegate { ShowDiagnostics(); });
+                Wire(root, "btnEmailKeywordAdd", delegate { AddEmailKeywords(); });
+                Wire(root, "btnEmailKeywordDefault", delegate
+                {
+                    if (MessageBox.Show(this, "恢复默认主题关键词？", "确认", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+                    txtEmailKeywords.Text = new Config().EmailKeywords; ApplySettings();
+                });
+                 Wire(root, "btnEmailTest", delegate { TestEmailConnection(); });
+                 Wire(root, "btnStorageRetry", delegate
+                 {
+                     if (!ApplySettings()) return;
+                     try { cfg.Save(cfgPath); History.RetrySave(); EmailWatcher.Kick(); ShowToast("已重试保存并请求邮件检查"); }
+                     catch { ShowToast("保存仍未完成，请检查文件权限与磁盘空间"); }
+                     UpdateEmailStatus();
+                 });
+                Wire(root, "btnEmailRecheck", delegate
+                {
+                    if (!ApplySettings()) return;
+                    if (!Program.EmailConfigured()) { ShowToast("请先填写邮箱凭据并开启邮箱接收"); return; }
+                    EmailWatcher.RequestRecentCheck();
+                    ShowToast("已请求复查近 30 分钟邮件，最多 200 封候选邮件");
+                });
+                Wire(root, "btnEmailGuide", delegate
+                {
+                    string guide = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GMAIL_APP_PASSWORD.md");
+                    if (!File.Exists(guide)) guide = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "docs", "GMAIL_APP_PASSWORD.md"));
+                    try { Process.Start(new ProcessStartInfo(File.Exists(guide) ? guide : "https://support.google.com/accounts/answer/185833?hl=zh-Hans") { UseShellExecute = true }); }
+                    catch { ShowToast("请查看交付目录的 GMAIL_APP_PASSWORD.md 教程"); }
+                });
             Wire(root, "btnClear", delegate
             {
                  if (MessageBox.Show(this, "确定清空全部记录？", "确认",
                         MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK)
                 {
-                    History.Clear();
-                    RefreshHistory();
+                    try { History.Clear(); RefreshHistory(); }
+                    catch (IOException) { ShowToast(History.LastSaveError); }
                 }
             });
 
               if (navHistory != null) navHistory.Click += delegate { SelectSection("history"); };
-              if (navGeneral != null) navGeneral.Click += delegate { SelectSection("general"); };
+               if (navGeneral != null) navGeneral.Click += delegate { SelectSection("general"); };
+               if (navEmail != null) navEmail.Click += delegate { SelectSection("email"); };
               if (navSecurity != null) navSecurity.Click += delegate { SelectSection("security"); };
               if (navAbout != null) navAbout.Click += delegate { SelectSection("about"); };
              StateChanged += delegate
@@ -1314,6 +1684,10 @@ namespace Codepass
               LoadValues();
               RefreshHistory();
               WireAutoApply(root);
+              txtHistoryRetention.LostFocus += delegate { SaveHistoryRetention(); };
+              txtHistoryRetention.KeyDown += delegate(object sender, KeyEventArgs e)
+              { if (e.Key == Key.Return) { SaveHistoryRetention(); e.Handled = true; } };
+               WireMultilineScrolling();
               SelectSection("history");
              if (cfg.LockOnOpen) LockWindow();
 #if CODEPASS_TEST
@@ -1326,26 +1700,71 @@ namespace Codepass
          /// <summary>输入完成即应用：文本失焦/回车、勾选切换、下拉选择、密钥框失焦时自动保存。</summary>
          void WireAutoApply(FrameworkElement root)
         {
-               TextBox[] boxes = new TextBox[] { txtPort, txtPcIp, txtMin, txtMax, txtClear,
-                   txtNtfyServer, txtNtfyTopic, txtFilterKeywords, txtFilterRegex };
+               TextBox[] boxes = new TextBox[] { txtPort, txtPcIp, txtMin, txtMax, txtClear, txtSmsMaxLength,
+                   txtNtfyServer, txtNtfyTopic, txtFilterKeywords, txtFilterRegex,
+                   txtEmailServer, txtEmailAccount, txtEmailPoll, txtEmailKeywords, txtEmailSenders };
             foreach (TextBox tb in boxes)
             {
                 if (tb == null) continue;
                 tb.LostFocus += delegate { ApplySettings(); };
                  tb.KeyDown += delegate(object s, KeyEventArgs e)
                  {
-                     // 多行过滤输入框用回车换行，失焦时自动保存；其他输入框回车立即保存。
-                     if (e.Key == Key.Return && s != txtFilterKeywords && s != txtFilterRegex) ApplySettings();
+                     // 多行过滤/邮箱输入框用回车换行，失焦时自动保存；其他输入框回车立即保存。
+                     if (e.Key == Key.Return
+                         && s != txtFilterKeywords && s != txtFilterRegex
+                         && s != txtEmailKeywords && s != txtEmailSenders) ApplySettings();
                  };
             }
             if (chkTip != null) chkTip.Click += delegate { ApplySettings(); };
             if (chkStartup != null) chkStartup.Click += delegate { ApplySettings(); };
             if (chkAutoLock != null) chkAutoLock.Click += delegate { ApplySettings(); };
-             if (cmbPrivacy != null) cmbPrivacy.SelectionChanged += delegate { ApplySettings(); };
+              if (cmbPrivacy != null) cmbPrivacy.SelectionChanged += delegate { ApplySettings(); };
+              if (cmbEmailPrivacy != null) cmbEmailPrivacy.SelectionChanged += delegate { ApplySettings(); };
               if (fldToken != null) fldToken.Committed += delegate { ApplySettings(); };
               if (fldNtfyToken != null) fldNtfyToken.Committed += delegate { ApplySettings(); };
-             if (txtPcIp != null) txtPcIp.TextChanged += delegate { if (!loadingValues) autoPcIp = ""; };
-        }
+              if (fldEmailAuth != null) fldEmailAuth.Committed += delegate { ApplySettings(); };
+              if (chkEmail != null) chkEmail.Click += delegate { ApplySettings(); };
+              if (chkEmailJunk != null) chkEmailJunk.Click += delegate { ApplySettings(); };
+              if (chkEmailNotify != null) chkEmailNotify.Click += delegate { ApplySettings(); };
+               if (chkEmailAutoCopy != null) chkEmailAutoCopy.Click += delegate { ApplySettings(); };
+               if (chkEmailSaveBody != null) chkEmailSaveBody.Click += delegate { ApplySettings(); };
+              if (chkQqPopup != null) chkQqPopup.Click += delegate { ApplySettings(); };
+              if (cmbEmailProvider != null) cmbEmailProvider.SelectionChanged += delegate
+              {
+                  if (loadingValues) return;
+                  ApplyEmailProviderPreset();
+                  ApplySettings();
+              };
+              if (txtPcIp != null) txtPcIp.TextChanged += delegate { if (!loadingValues) autoPcIp = ""; };
+               if (txtEmailServer != null) txtEmailServer.TextChanged += delegate { UpdateEmailAuthHint(); };
+               if (txtEmailKeywords != null) txtEmailKeywords.TextChanged += delegate { RenderEmailKeywordTags(); };
+               if (txtEmailSubjectPreview != null) txtEmailSubjectPreview.TextChanged += delegate { UpdateEmailPreview(); };
+               if (txtEmailKeywordAdd != null) txtEmailKeywordAdd.KeyDown += delegate(object s, KeyEventArgs e)
+               {
+                   if (e.Key == Key.Return) { AddEmailKeywords(); e.Handled = true; }
+               };
+         }
+
+         void WireMultilineScrolling()
+         {
+             TextBox[] boxes = { txtFilterKeywords, txtFilterRegex, txtEmailKeywords, txtEmailSenders };
+             foreach (TextBox box in boxes)
+                 if (box != null) box.PreviewMouseWheel += ScrollMultilineTextBox;
+         }
+
+         static void ScrollMultilineTextBox(object sender, MouseWheelEventArgs e)
+         {
+             TextBox box = sender as TextBox;
+             if (box == null || e.Delta == 0) return;
+             box.ApplyTemplate();
+             ScrollViewer scroll = box.Template.FindName("PART_ContentHost", box) as ScrollViewer;
+             if (scroll == null || scroll.ScrollableHeight <= 0.5) return;
+             // 溢出时，包括上下边界，都由输入框消费滚轮，避免意外滚动外层设置页。
+             int lines = SystemParameters.WheelScrollLines;
+             double step = lines < 0 ? scroll.ViewportHeight : lines * box.FontSize * 1.4;
+             box.ScrollToVerticalOffset(box.VerticalOffset - e.Delta / 120.0 * step);
+             e.Handled = true;
+         }
 
         static void Wire(FrameworkElement root, string name, RoutedEventHandler h)
         {
@@ -1360,7 +1779,115 @@ namespace Codepass
             return o as T;
         }
 
-         // ---------- 左侧分类 ----------
+        // 保存表单原始位置，窄窗口只改变布局，不重新创建输入框或触发保存。
+        sealed class ResponsiveForm
+        {
+            internal Grid Grid;
+            internal GridLength LabelWidth;
+            internal readonly List<GridLength> Rows = new List<GridLength>();
+            internal readonly List<FormCell> Cells = new List<FormCell>();
+            internal bool Compact;
+        }
+
+        sealed class FormCell
+        {
+            internal FrameworkElement Element;
+            internal int Row, Column;
+            internal Thickness Margin;
+        }
+
+        void InitializeResponsiveForms(DependencyObject node)
+        {
+            Grid grid = node as Grid;
+            if (grid != null && grid.ColumnDefinitions.Count == 2
+                && grid.ColumnDefinitions[0].Width.IsAbsolute && grid.ColumnDefinitions[1].Width.IsStar)
+            {
+                ResponsiveForm form = new ResponsiveForm { Grid = grid, LabelWidth = grid.ColumnDefinitions[0].Width };
+                foreach (RowDefinition row in grid.RowDefinitions) form.Rows.Add(row.Height);
+                foreach (UIElement child in grid.Children)
+                {
+                    FrameworkElement element = child as FrameworkElement;
+                    if (element != null) form.Cells.Add(new FormCell { Element = element, Row = Grid.GetRow(element),
+                        Column = Grid.GetColumn(element), Margin = element.Margin });
+                }
+                responsiveForms.Add(form);
+            }
+            foreach (object child in LogicalTreeHelper.GetChildren(node))
+                if (child is DependencyObject) InitializeResponsiveForms((DependencyObject)child);
+        }
+
+        void UpdateResponsiveForms()
+        {
+            if (settingsScroll == null || settingsScroll.ActualWidth <= 0) return;
+            bool compact = settingsScroll.ActualWidth < 850;
+            foreach (ResponsiveForm form in responsiveForms)
+            {
+                if (form.Compact == compact) continue;
+                form.Compact = compact;
+                form.Grid.ColumnDefinitions[0].Width = compact ? new GridLength(0) : form.LabelWidth;
+                form.Grid.RowDefinitions.Clear();
+                int rows = Math.Max(1, form.Rows.Count);
+                for (int i = 0; i < (compact ? rows * 2 : rows); i++)
+                    form.Grid.RowDefinitions.Add(new RowDefinition { Height = compact ? GridLength.Auto : form.Rows.Count == 0 ? GridLength.Auto : form.Rows[i] });
+                foreach (FormCell cell in form.Cells)
+                {
+                    Grid.SetColumn(cell.Element, compact ? 1 : cell.Column);
+                    Grid.SetRow(cell.Element, compact ? cell.Row * 2 + (cell.Column == 0 ? 0 : 1) : cell.Row);
+                    cell.Element.Margin = compact ? cell.Column == 0 ? new Thickness(0, 10, 0, 4) : new Thickness(0, 0, 0, 8) : cell.Margin;
+                }
+            }
+        }
+
+        Window CreateDiagnosticsWindow()
+        {
+            string report = Diagnostics.CreateReport(cfg);
+            Window dialog = new Window { Title = "脱敏诊断预览", Width = 760, Height = 600, MinWidth = 480, MinHeight = 360,
+                Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false,
+                Background = MakeBrush(0xF3, 0xF3, 0xF3), FontFamily = FontFamily, Icon = Icon };
+            Grid layout = new Grid { Margin = new Thickness(20) };
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            layout.Children.Add(new TextBlock { Text = "报告只包含下方预览内容。确认后保存为文本，再自行分享；不会自动上传。",
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12), Foreground = FgBody });
+            TextBox preview = new TextBox { Name = "txtDiagnosticsPreview", Text = report, IsReadOnly = true,
+                AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Padding = new Thickness(12), Background = Brushes.White, Foreground = FgBody };
+            Grid.SetRow(preview, 1); layout.Children.Add(preview);
+            WrapPanel actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+            Button save = new Button { Name = "btnDiagnosticsSave", Content = "保存此预览", MinWidth = 110 };
+            Button close = new Button { Content = "关闭", MinWidth = 84, Margin = new Thickness(8, 0, 0, 0) };
+            FrameworkElement root = Content as FrameworkElement;
+            if (root != null) { save.Style = root.Resources["PrimaryBtn"] as Style; close.Style = root.Resources["SecondaryBtn"] as Style; }
+            save.Click += delegate
+            {
+                SaveFileDialog picker = new SaveFileDialog { Filter = "文本报告 (*.txt)|*.txt", DefaultExt = ".txt",
+                    FileName = "codepass-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt" };
+                if (picker.ShowDialog(dialog) != true) return;
+                try { Diagnostics.SavePreview(picker.FileName, report, cfgPath); ShowToast("脱敏诊断已保存"); }
+                catch { MessageBox.Show(dialog, "报告保存失败，请选择其他文件，检查目录权限与磁盘空间。", "保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
+            };
+            close.Click += delegate { dialog.Close(); };
+            actions.Children.Add(save); actions.Children.Add(close);
+            Grid.SetRow(actions, 2); layout.Children.Add(actions);
+            dialog.Content = layout;
+            dialog.PreviewKeyDown += delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Escape) { dialog.Close(); e.Handled = true; } };
+            diagnosticsWindow = dialog;
+            dialog.Closed += delegate { if (diagnosticsWindow == dialog) diagnosticsWindow = null; };
+            dialog.StateChanged += delegate
+            {
+                if (dialog.WindowState == WindowState.Minimized && cfg.ShouldAutoLock) LockWindow();
+            };
+            return dialog;
+        }
+
+        void ShowDiagnostics()
+        {
+            if (lockOverlay != null && lockOverlay.Visibility == Visibility.Visible) return;
+            CreateDiagnosticsWindow().ShowDialog();
+        }
+
+          // ---------- 左侧分类 ----------
 
          void SelectSection(string section)
          {
@@ -1371,19 +1898,28 @@ namespace Codepass
              pageSet.Visibility = (!history && !about) ? Visibility.Visible : Visibility.Collapsed;
               if (pageAbout != null) pageAbout.Visibility = about ? Visibility.Visible : Visibility.Collapsed;
               bool general = !history && !about && (section == "general" || section == "network" || section == "notify");
-              bool security = !history && !about && section == "security";
+               bool security = !history && !about && section == "security";
+               bool email = !history && !about && section == "email";
               SetCardState(cardGeneral, general);
               SetCardState(cardNetwork, general);
-              SetCardState(cardNotify, false);
+              SetCardState(cardNtfy, general);
+              SetCardState(cardSmsFilters, general);
+              SetCardState(cardEmailStatus, email);
+               SetCardState(cardEmail, email);
+               SetCardState(cardEmailFilters, email);
+               SetCardState(cardQqPopup, email);
+              SetCardState(cardNotify, security);
               SetCardState(cardSecurity, security);
               SetCardState(cardMore, general);
               SetNavState(navHistory, history);
-              SetNavState(navGeneral, general);
+               SetNavState(navGeneral, general);
+               SetNavState(navEmail, email);
               SetNavState(navSecurity, security);
               SetNavState(navAbout, about);
-              if (general || security)
-              {
-                  Border target = security ? cardSecurity : cardGeneral;
+               if (general || email || security)
+               {
+                   if (settingsScroll != null) settingsScroll.ScrollToTop();
+                    Border target = security ? cardNotify : email ? cardEmailStatus : cardGeneral;
                   if (target != null) target.BringIntoView();
               }
          }
@@ -1406,7 +1942,8 @@ namespace Codepass
              loadingValues = true;
              try
              {
-                 txtPort.Text = cfg.Port.ToString();
+                  txtPort.Text = cfg.Port.ToString();
+                  txtHistoryRetention.Text = cfg.HistoryRetentionMinutes.ToString();
                  fldToken.Text = cfg.Token;
                  autoPcIp = cfg.PcIp.Length == 0 ? Program.DetectLocalIp() : "";
                  if (autoPcIp == "127.0.0.1") autoPcIp = "";
@@ -1415,26 +1952,85 @@ namespace Codepass
                   txtNtfyTopic.Text = cfg.NtfyTopic;
                   fldNtfyToken.Text = cfg.NtfyToken;
                   txtMin.Text = cfg.MinLen.ToString();
-                  txtMax.Text = cfg.MaxLen.ToString();
+                   txtMax.Text = cfg.MaxLen.ToString();
+                   txtSmsMaxLength.Text = cfg.SmsMaxLength.ToString();
                   txtClear.Text = cfg.AutoClearSeconds.ToString();
                   if (txtFilterKeywords != null) txtFilterKeywords.Text = cfg.FilterKeywords;
                   if (txtFilterRegex != null) txtFilterRegex.Text = cfg.FilterRegex;
+                  if (txtEmailServer != null)
+                  {
+                      txtEmailServer.Text = cfg.EmailServer;
+                      txtEmailAccount.Text = cfg.EmailAccount;
+                       if (fldEmailAuth != null) fldEmailAuth.Text = cfg.EmailAuth;
+                      txtEmailPoll.Text = cfg.EmailPollSeconds.ToString();
+                      txtEmailKeywords.Text = cfg.EmailKeywords;
+                      txtEmailSenders.Text = cfg.EmailSenders;
+                  }
+                  if (chkEmail != null)
+                  {
+                      chkEmail.IsChecked = cfg.EmailEnabled;
+                      chkEmailJunk.IsChecked = cfg.EmailCheckJunk;
+                      chkEmailNotify.IsChecked = cfg.EmailNotify;
+                       chkEmailAutoCopy.IsChecked = cfg.EmailAutoCopy;
+                       chkEmailSaveBody.IsChecked = cfg.EmailSaveBody;
+                      chkQqPopup.IsChecked = cfg.QqPopupEnabled;
+                  }
+                  if (cmbEmailProvider != null)
+                      cmbEmailProvider.SelectedIndex = EmailProviderIndexOf(cfg.EmailServer);
+                  if (cfg.EmailAuthUndecryptable && !warnedEmailAuthUndecryptable)
+                  {
+                      warnedEmailAuthUndecryptable = true;
+                      ShowToast("邮箱授权码已失效（换机或换了 Windows 账户），请重新填写");
+                  }
+                   UpdateEmailAuthHint();
+                    RenderEmailKeywordTags();
+                    UpdateEmailStatus();
                   chkTip.IsChecked = cfg.ShowTip;
                  if (chkStartup != null) chkStartup.IsChecked = cfg.StartWithWindows;
-                 if (cmbPrivacy != null) cmbPrivacy.SelectedIndex = cfg.PrivacyMode < 0 || cfg.PrivacyMode > 2 ? 0 : cfg.PrivacyMode;
+                  if (cmbPrivacy != null) cmbPrivacy.SelectedIndex = cfg.PrivacyMode < 0 || cfg.PrivacyMode > 2 ? 0 : cfg.PrivacyMode;
+                  if (cmbEmailPrivacy != null) cmbEmailPrivacy.SelectedIndex = cfg.EmailPrivacyMode;
                  RefreshSecurityControls();
              }
              finally { loadingValues = false; }
          }
 
         /// <summary>输入完成即应用（失焦、回车、勾选切换）；无效输入提示并还原为已保存值。</summary>
-         bool ApplySettings()
+        bool SaveHistoryRetention()
+        {
+            int minutes;
+            if (!int.TryParse(txtHistoryRetention.Text.Trim(), out minutes) || minutes < 0 || minutes > Config.MaximumHistoryRetentionMinutes)
+            {
+                txtHistoryRetention.Text = cfg.HistoryRetentionMinutes.ToString();
+                ShowToast("记录保留时间需在 0～43200 分钟之间，0 停用，已还原");
+                return false;
+            }
+            lock (Config.SaveGate)
+            {
+                if (minutes != cfg.HistoryRetentionMinutes)
+                {
+                    int previous = cfg.HistoryRetentionMinutes;
+                    cfg.HistoryRetentionMinutes = minutes;
+                    try { cfg.Save(cfgPath); }
+                    catch
+                    {
+                        cfg.HistoryRetentionMinutes = previous;
+                        txtHistoryRetention.Text = previous.ToString();
+                        ShowToast("记录清理设置保存失败，已还原，请检查文件权限");
+                        return false;
+                    }
+                }
+            }
+            Program.ApplyHistoryRetention();
+            return true;
+        }
+
+          bool ApplySettings()
          {
               if (applying || loadingValues || txtPort == null) return !settingsRecoveryRequired;
              applying = true;
              try
             {
-            int port, mn, mx, cl;
+            int port, mn, mx, cl, smsMaxLength;
             if (!int.TryParse(txtPort.Text.Trim(), out port) || port < 1 || port > 65535)
             {
                  ShowToast("端口无效（1~65535），已还原");
@@ -1449,7 +2045,14 @@ namespace Codepass
                   txtMax.Text = cfg.MaxLen.ToString();
                   return false;
              }
-             if (mx < mn) { mx = mn; txtMax.Text = mx.ToString(); }
+              if (mx < mn) { mx = mn; txtMax.Text = mx.ToString(); }
+              if (!int.TryParse(txtSmsMaxLength.Text.Trim(), out smsMaxLength)
+                  || smsMaxLength < 1 || smsMaxLength > Config.MaximumSmsMaxLength)
+              {
+                  txtSmsMaxLength.Text = cfg.SmsMaxLength.ToString();
+                  ShowToast("短信长度上限需在 1～10000 字符之间，已还原");
+                  return false;
+              }
               if (!int.TryParse(txtClear.Text.Trim(), out cl) || cl < 0)
               {
                    ShowToast("自动清除需为不小于 0 的秒数，已还原");
@@ -1457,6 +2060,50 @@ namespace Codepass
                    return false;
              }
 
+              int emailPoll;
+              if (!int.TryParse(txtEmailPoll.Text.Trim(), out emailPoll) || emailPoll < 10 || emailPoll > 600)
+              {
+                  ShowToast("邮箱检查间隔需在 10～600 秒之间，已还原");
+                  txtEmailPoll.Text = cfg.EmailPollSeconds.ToString();
+                  return false;
+              }
+              string newEmailServer = txtEmailServer == null ? "" : txtEmailServer.Text.Trim();
+              string newEmailAccount = txtEmailAccount == null ? "" : txtEmailAccount.Text.Trim();
+               string newEmailAuth = fldEmailAuth == null ? "" : fldEmailAuth.Text.Trim();
+              string newEmailKeywords = txtEmailKeywords == null ? "" : txtEmailKeywords.Text;
+               string newEmailSenders = txtEmailSenders == null ? "" : txtEmailSenders.Text;
+               string normalizedKeywords, normalizedSenders, mailRuleError;
+               if (!MailRules.NormalizeLines(newEmailKeywords, out normalizedKeywords, out mailRuleError))
+               {
+                   txtEmailKeywords.Text = cfg.EmailKeywords;
+                   ShowToast("主题关键词无效：" + mailRuleError + "，已还原"); return false;
+               }
+                if (!MailRules.NormalizeSenders(newEmailSenders, out normalizedSenders, out mailRuleError))
+               {
+                   txtEmailSenders.Text = cfg.EmailSenders;
+                   ShowToast("发件人规则无效：" + mailRuleError + "，已还原"); return false;
+               }
+               newEmailKeywords = normalizedKeywords; newEmailSenders = normalizedSenders;
+               txtEmailKeywords.Text = newEmailKeywords; txtEmailSenders.Text = newEmailSenders;
+              bool newEmailEnabled = chkEmail != null && chkEmail.IsChecked == true;
+              bool newEmailJunk = chkEmailJunk != null && chkEmailJunk.IsChecked == true;
+              bool newEmailNotify = chkEmailNotify == null || chkEmailNotify.IsChecked == true;
+               bool newEmailAutoCopy = chkEmailAutoCopy == null || chkEmailAutoCopy.IsChecked == true;
+               bool newEmailSaveBody = chkEmailSaveBody != null && chkEmailSaveBody.IsChecked == true;
+               bool newQqPopup = chkQqPopup == null || chkQqPopup.IsChecked == true;
+               if (newEmailEnabled
+                   && (newEmailServer.Length == 0 || newEmailAccount.Length == 0
+                       || newEmailAuth.Length == 0
+                      || newEmailServer.IndexOf(' ') >= 0 || newEmailServer.IndexOf('/') >= 0
+                      || newEmailServer.IndexOf(':') >= 0))
+              {
+                  txtEmailServer.Text = cfg.EmailServer;
+                  txtEmailAccount.Text = cfg.EmailAccount;
+                  if (fldEmailAuth != null) fldEmailAuth.Text = cfg.EmailAuth;
+                  if (chkEmail != null) chkEmail.IsChecked = cfg.EmailEnabled;
+                  ShowToast("启用邮箱接收需要填写服务器、账号和授权码，已还原");
+                  return false;
+              }
               string newToken = fldToken.Text.Trim();
               string newPcIp = txtPcIp.Text.Trim();
               if (cfg.PcIp.Length == 0 && autoPcIp.Length > 0 && newPcIp == autoPcIp) newPcIp = "";
@@ -1504,78 +2151,132 @@ namespace Codepass
               }
              bool newShowTip = chkTip.IsChecked == true;
             bool newStartup = chkStartup != null && chkStartup.IsChecked == true;
-            int newPrivacy = cmbPrivacy != null && cmbPrivacy.SelectedIndex >= 0 && cmbPrivacy.SelectedIndex <= 2 ? cmbPrivacy.SelectedIndex : 0;
+             int newPrivacy = cmbPrivacy != null && cmbPrivacy.SelectedIndex >= 0 && cmbPrivacy.SelectedIndex <= 2 ? cmbPrivacy.SelectedIndex : 0;
+             int newEmailPrivacy = cmbEmailPrivacy != null && cmbEmailPrivacy.SelectedIndex >= 0 && cmbEmailPrivacy.SelectedIndex <= 2 ? cmbEmailPrivacy.SelectedIndex : 0;
             bool newAutoLock = cfg.LockEnabled && chkAutoLock != null && chkAutoLock.IsChecked == true;
             if (port == cfg.Port && newToken == cfg.Token && newPcIp == cfg.PcIp
                 && mn == cfg.MinLen && mx == cfg.MaxLen && cl == cfg.AutoClearSeconds
+                && smsMaxLength == cfg.SmsMaxLength
                 && newShowTip == cfg.ShowTip && newStartup == cfg.StartWithWindows
-                  && newPrivacy == cfg.PrivacyMode && newNtfyServer == cfg.NtfyServer
+                  && newPrivacy == cfg.PrivacyMode && newEmailPrivacy == cfg.EmailPrivacyMode && newNtfyServer == cfg.NtfyServer
                    && newNtfyTopic == cfg.NtfyTopic && newNtfyToken == cfg.NtfyToken
                   && newFilterKeywords == cfg.FilterKeywords && newFilterRegex == cfg.FilterRegex
+                  && newEmailServer == cfg.EmailServer && newEmailAccount == cfg.EmailAccount
+                   && newEmailAuth == cfg.EmailAuth && emailPoll == cfg.EmailPollSeconds
+                  && newEmailKeywords == cfg.EmailKeywords && newEmailSenders == cfg.EmailSenders
+                  && newEmailEnabled == cfg.EmailEnabled && newEmailJunk == cfg.EmailCheckJunk
+                   && newEmailNotify == cfg.EmailNotify && newEmailAutoCopy == cfg.EmailAutoCopy
+                   && newEmailSaveBody == cfg.EmailSaveBody
+                  && newQqPopup == cfg.QqPopupEnabled
                  && newAutoLock == cfg.AutoLockEnabled
-                 && !Program.StartupSyncFailed)
+                 && !Program.StartupSyncFailed && !settingsRecoveryRequired)
                  {
-                 if (settingsRecoveryRequired)
-                     ShowToast("上次保存未完成，请修复配置文件后重试");
-                 return !settingsRecoveryRequired;
+                 return true;
              }
 
-             Config previous = new Config();
+              lock (Config.SaveGate)
+              {
+              bool recoveryWasRequired = settingsRecoveryRequired;
+              Config previous = new Config();
              previous.CopyFrom(cfg);
-             bool startupChanged = previous.StartWithWindows != newStartup;
+              bool startupChanged = previous.StartWithWindows != newStartup;
+               bool mailboxChanged = !string.Equals(cfg.EmailServer, newEmailServer, StringComparison.OrdinalIgnoreCase)
+                   || !string.Equals(cfg.EmailAccount, newEmailAccount, StringComparison.OrdinalIgnoreCase);
+               bool emailRulesChanged = cfg.EmailKeywords != newEmailKeywords || cfg.EmailSenders != newEmailSenders
+                   || cfg.MinLen != mn || cfg.MaxLen != mx;
+              if (mailboxChanged)
+              {
+                   cfg.EmailLastUid = cfg.EmailUidValidity = cfg.EmailLastUidJunk = cfg.EmailUidValidityJunk = 0;
+                   cfg.EmailMailboxState = "";
+                   cfg.EmailAuthEncRaw = "";
+                   cfg.EmailAuthUndecryptable = false;
+                   cfg.EmailPasswordRequired = false;
+              }
 
              cfg.Port = port;
             cfg.Token = newToken;
             cfg.PcIp = newPcIp;
             cfg.MinLen = mn;
             cfg.MaxLen = mx;
+            cfg.SmsMaxLength = smsMaxLength;
             cfg.AutoClearSeconds = cl;
             cfg.ShowTip = newShowTip;
              cfg.StartWithWindows = newStartup;
-            cfg.PrivacyMode = newPrivacy;
+             cfg.PrivacyMode = newPrivacy;
+             cfg.EmailPrivacyMode = newEmailPrivacy;
             cfg.NtfyServer = newNtfyServer;
               cfg.NtfyTopic = newNtfyTopic;
               cfg.NtfyToken = newNtfyToken;
               cfg.FilterKeywords = newFilterKeywords;
               cfg.FilterRegex = newFilterRegex;
+              cfg.EmailServer = newEmailServer;
+              cfg.EmailAccount = newEmailAccount;
+               cfg.EmailAuth = newEmailAuth;
+              if (newEmailAuth.Length > 0)
+              {
+                  // 用户重新填写了授权码：清除“解密失败保留密文”的标记并恢复提示文字。
+                   cfg.EmailAuthUndecryptable = false;
+                   cfg.EmailAuthEncRaw = "";
+                   cfg.EmailPasswordRequired = false;
+                  UpdateEmailAuthHint();
+              }
+              cfg.EmailPollSeconds = emailPoll;
+              cfg.EmailKeywords = newEmailKeywords;
+              cfg.EmailSenders = newEmailSenders;
+              cfg.EmailEnabled = newEmailEnabled;
+              cfg.EmailCheckJunk = newEmailJunk;
+              cfg.EmailNotify = newEmailNotify;
+               cfg.EmailAutoCopy = newEmailAutoCopy;
+               cfg.EmailSaveBody = newEmailSaveBody;
+              cfg.QqPopupEnabled = newQqPopup;
              cfg.AutoLockEnabled = newAutoLock;
 
              bool startupAttempted = false;
+             bool configSaved = false;
               try
               {
                   cfg.Save(cfgPath);
+                  configSaved = true;
                  if (startupChanged || Program.StartupSyncFailed)
                  {
                       startupAttempted = true;
                       Program.SetStartup(cfg.StartWithWindows);
                   }
                   settingsRecoveryRequired = false;
+                  // 邮箱 / QQ 弹窗设置即时生效：无需重启程序。
+                   Program.RefreshEmailWatchers();
+                   if (emailRulesChanged && Program.EmailConfigured()) EmailWatcher.RequestRecentCheck();
+                   UpdateEmailAuthHint();
               }
               catch (Exception ex)
               {
-                  bool restored = RestoreSettings(previous, startupAttempted);
-                  settingsRecoveryRequired = !restored;
-                  Log.Write("apply settings failed: " + ex.Message);
+                  bool restored = RestoreSettings(previous, startupAttempted, configSaved);
+                  settingsRecoveryRequired = !restored || (!configSaved && recoveryWasRequired);
+                  Log.Write("apply settings failed: " + ex.GetType().Name);
                   ShowToast(restored
-                      ? "保存失败：" + ex.Message + "，已还原"
-                      : "保存失败且还原失败，请检查配置文件和开机启动设置");
+                      ? "保存失败：" + SettingsFailureReason(ex) + "；已还原，可重试或退出"
+                      : "恢复未完成：" + SettingsFailureReason(ex) + "；可重试或退出");
                   return false;
              }
-             return true;
-             }
+              return true;
+              }
+              }
             finally { applying = false; }
         }
 
          /// <summary>保存失败时恢复内存、界面、配置文件和已尝试同步的开机启动设置。</summary>
-         bool RestoreSettings(Config previous, bool restoreStartup)
+         bool RestoreSettings(Config previous, bool restoreStartup, bool restoreConfig = true)
          {
              bool restored = true;
+             lock (Config.SaveGate)
+             {
              cfg.CopyFrom(previous);
-             try { cfg.Save(cfgPath); }
+             try { if (restoreConfig) cfg.Save(cfgPath); }
              catch (Exception ex)
              {
                  restored = false;
-                 Log.Write("settings rollback save failed: " + ex.Message);
+                  Log.Write("settings rollback save failed: " + ex.GetType().Name);
+             }
              }
              if (restoreStartup)
              {
@@ -1583,11 +2284,179 @@ namespace Codepass
                  catch (Exception ex)
                  {
                      restored = false;
-                     Log.Write("settings rollback startup failed: " + ex.Message);
+                  Log.Write("settings rollback startup failed: " + ex.GetType().Name);
                  }
              }
              LoadValues();
              return restored;
+         }
+
+        static string SettingsFailureReason(Exception ex)
+        {
+            if (ex is UnauthorizedAccessException) return "配置目录不可写或文件只读";
+            if (ex is IOException) return "配置文件被占用或写入失败";
+            if (ex is System.Security.Cryptography.CryptographicException) return "Windows 凭据加密失败";
+            if (ex is FormatException) return "配置规则无效";
+            if (ex is System.Security.SecurityException) return "系统拒绝配置或启动项访问";
+            return "设置应用失败（" + ex.GetType().Name + "）";
+        }
+
+        // 邮箱服务预设（与下拉顺序一致）；最后一项为自定义。
+        static readonly string[] EmailProviderServers = { "imap.qq.com", "imap.163.com", "imap.126.com", "imap.gmail.com", "outlook.office365.com" };
+
+        static int EmailProviderIndexOf(string server)
+        {
+            for (int i = 0; i < EmailProviderServers.Length; i++)
+                if (string.Equals(server, EmailProviderServers[i], StringComparison.OrdinalIgnoreCase)) return i;
+            return EmailProviderServers.Length;
+        }
+
+        /// <summary>选择服务商预设时自动填服务器地址；“自定义”保持用户输入。</summary>
+        void ApplyEmailProviderPreset()
+        {
+            if (cmbEmailProvider == null || txtEmailServer == null) return;
+             int index = cmbEmailProvider.SelectedIndex;
+              if (index >= 0 && index < EmailProviderServers.Length)
+              {
+                  string server = EmailProviderServers[index];
+                  if (!string.Equals(server, txtEmailServer.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                  {
+                      chkEmail.IsChecked = false;
+                      fldEmailAuth.Text = "";
+                      txtEmailServer.Text = server;
+                  }
+              }
+             UpdateEmailAuthHint();
+         }
+
+         void UpdateEmailAuthHint()
+         {
+             string server = txtEmailServer == null ? cfg.EmailServer : txtEmailServer.Text.Trim();
+             int provider = EmailProviderIndexOf(server);
+              bool gmail = provider == 3;
+             if (emailAuthHint != null)
+                 emailAuthHint.Text = cfg.EmailPasswordRequired ? "请重新填写 IMAP 授权码 / 应用专用密码"
+                     : cfg.EmailAuthUndecryptable
+                     ? "已失效：换机或换了 Windows 账户，请重新填写"
+                     : gmail ? "填写 Google 生成的 16 位应用专用密码，不是账号密码"
+                     : "填写 IMAP 授权码 / 应用专用密码，不是邮箱网页登录密码";
+             if (emailProviderHint != null)
+                 emailProviderHint.Text = gmail
+                      ? "Gmail：先开启两步验证，再生成应用专用密码。部分组织账号或高级保护账号无法生成应用专用密码。"
+                     : provider >= 0 && provider <= 2
+                     ? "QQ / 163 / 126 邮箱：先在网页版邮箱设置中开启 IMAP 服务，再生成授权码。"
+                      : "请使用服务商允许的 IMAP 授权码或应用专用密码。";
+             if (btnEmailAuthHelp != null)
+                 btnEmailAuthHelp.Visibility = gmail ? Visibility.Visible : Visibility.Collapsed;
+         }
+
+         static List<string> EmailKeywordList(string text)
+         {
+             List<string> list = new List<string>();
+             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+             foreach (string line in (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+             {
+                 string value = line.Trim();
+                 if (value.Length > 0 && seen.Add(value)) list.Add(value);
+             }
+             return list;
+         }
+
+         void RenderEmailKeywordTags()
+         {
+             if (emailKeywordTags == null || txtEmailKeywords == null) return;
+             emailKeywordTags.Children.Clear();
+             UpdateEmailPreview();
+             foreach (string keyword in EmailKeywordList(txtEmailKeywords.Text))
+             {
+                 string value = keyword;
+                 Border chip = new Border { Background = MakeBrush(0xE8, 0xF2, 0xFC), CornerRadius = new CornerRadius(12),
+                     Padding = new Thickness(10, 2, 6, 2), Margin = new Thickness(0, 0, 6, 6) };
+                 StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
+                 content.Children.Add(new TextBlock { Text = value, Foreground = AccentTx, FontSize = 13,
+                     VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 250, ToolTip = value });
+                 Button remove = new Button { Content = "×", Width = 24, Height = 24, FontSize = 16,
+                     Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = FgFaint,
+                     Cursor = Cursors.Hand, ToolTip = "移除关键词", Margin = new Thickness(4, 0, 0, 0) };
+                 System.Windows.Automation.AutomationProperties.SetName(remove, "移除关键词 " + value);
+                 remove.Click += delegate
+                 {
+                     List<string> words = EmailKeywordList(txtEmailKeywords.Text);
+                     words.Remove(value);
+                     txtEmailKeywords.Text = string.Join("\n", words.ToArray());
+                     ApplySettings();
+                 };
+                 content.Children.Add(remove); chip.Child = content; emailKeywordTags.Children.Add(chip);
+             }
+         }
+
+         void AddEmailKeywords()
+         {
+             if (txtEmailKeywordAdd == null || txtEmailKeywords == null) return;
+             string text = string.Join("\n", EmailKeywordList(txtEmailKeywords.Text + "\n" + txtEmailKeywordAdd.Text).ToArray());
+             string normalized, error;
+             if (!MailRules.NormalizeLines(text, out normalized, out error)) { ShowToast("主题关键词无效：" + error); return; }
+             txtEmailKeywords.Text = normalized;
+             txtEmailKeywordAdd.Clear();
+             ApplySettings();
+         }
+
+         void UpdateEmailPreview()
+         {
+             if (lblEmailPreviewResult == null || txtEmailSubjectPreview == null) return;
+             string normalized, error;
+             lblEmailPreviewResult.Text = !MailRules.NormalizeLines(txtEmailKeywords.Text, out normalized, out error)
+                 ? "规则无效：" + error : txtEmailSubjectPreview.Text.Length == 0 ? "输入主题查看是否会被接收"
+                 : MailRules.SubjectMatches(txtEmailSubjectPreview.Text, normalized) ? "主题命中；仍需满足发件人和时效规则" : "主题未命中，将跳过";
+         }
+
+         public void UpdateEmailStatus()
+         {
+             if (lblEmailStatus == null) return;
+             lblEmailStatus.Text = cfg.EmailPasswordRequired ? "请重新填写应用专用密码，邮箱接收已关闭"
+                 : !cfg.EmailEnabled ? "邮箱接收已关闭"
+                 : !Program.EmailConfigured() ? "邮箱未配置完整" : "收件箱：" + EmailWatcher.Status;
+             if (EmailWatcher.LastCheckUtc != DateTime.MinValue)
+                 lblEmailStatus.Text += " · 最后检查 " + EmailWatcher.LastCheckUtc.ToLocalTime().ToString("HH:mm:ss");
+             if (lblEmailFolders != null) lblEmailFolders.Text = !Program.EmailConfigured() ? "分类目录：待启用"
+                 : "分类目录：" + EmailWatcher.FolderStatus + (EmailWatcher.LastFolderCheckUtc == DateTime.MinValue ? ""
+                     : " · 最后成功 " + EmailWatcher.LastFolderCheckUtc.ToLocalTime().ToString("HH:mm:ss"));
+             if (lblEmailProcessing != null) lblEmailProcessing.Text = cfg.EmailEnabled
+                 ? "收件箱处理：" + EmailWatcher.LastMailResult + "\n分类目录处理：" + EmailWatcher.LastFolderResult + "\n" + EmailWatcher.RecentSummary : "";
+             Button recheck = Find<Button>((FrameworkElement)Content, "btnEmailRecheck");
+             if (recheck != null) { recheck.IsEnabled = Program.EmailConfigured() && !EmailWatcher.RecentCheckPending;
+                 recheck.Content = EmailWatcher.RecentCheckPending ? "正在复查近 30 分钟…" : "重新检查近 30 分钟"; }
+             string storage = string.Join("\n", new string[] { Config.LastSaveError ?? "", History.LastSaveError ?? "" }).Trim();
+             if (lblStorageError != null) lblStorageError.Text = storage;
+             Border banner = Find<Border>((FrameworkElement)Content, "storageErrorBanner");
+             if (banner != null) banner.Visibility = storage.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+             if (lblQqStatus != null) lblQqStatus.Text = !Program.EmailConfigured() ? "请先配置并启用邮箱；当前不会触发检查"
+                 : !cfg.QqPopupEnabled ? "联动已关闭" : "监测中 · 最近提醒 " + QqPopupWatcher.LastSignalText;
+             if (chkQqPopup != null) chkQqPopup.IsEnabled = Program.EmailConfigured();
+         }
+
+         void TestEmailConnection()
+         {
+             if (emailTestCancel != null) { emailTestCancel.Cancel(); return; }
+             if (!ApplySettings()) return;
+             Config identity = new Config(); identity.CopyFrom(cfg);
+             if (identity.EmailAccount.Length == 0 || identity.EmailServer.Length == 0
+                 || identity.EmailPasswordRequired || identity.EmailAuth.Length == 0)
+             { ShowToast("请先填写完整邮箱和 IMAP 授权码 / 应用专用密码"); return; }
+             CancellationTokenSource cancel = new CancellationTokenSource(); emailTestCancel = cancel;
+             btnEmailTest.Content = "取消测试"; lblEmailTestResult.Text = "正在测试认证与只读收件箱连接…";
+             Thread worker = new Thread(delegate()
+             {
+                 string result;
+                 try { result = EmailWatcher.TestConnection(identity, cancel.Token); }
+                 catch (OperationCanceledException) { result = "连接测试已取消"; }
+                 catch { result = cancel.IsCancellationRequested ? "连接测试已取消" : "连接测试失败，请检查网络、服务设置与授权"; }
+                 try { Dispatcher.BeginInvoke(new Action(delegate
+                 {
+                     emailTestCancel = null; cancel.Dispose(); btnEmailTest.Content = "测试邮箱连接"; lblEmailTestResult.Text = result;
+                 })); } catch { cancel.Dispose(); }
+             });
+             worker.IsBackground = true; worker.Name = "email-test"; worker.Start();
          }
 
          /// <summary>点"检测本机地址"：只有一个可用地址就直接填入，多个则弹出列表选择。</summary>
@@ -1757,12 +2626,12 @@ namespace Codepass
              if (dialog.ShowDialog(this) != true) return;
 
               MessageBoxResult choice = MessageBox.Show(this,
-                   "是否包含局域网令牌、ntfy 令牌和程序锁校验信息？\r\n\r\n包含敏感信息的文件不要发送给他人。",
+                   "是否包含局域网令牌、ntfy 令牌、邮箱授权码和程序锁校验信息？\r\n\r\n包含敏感信息的文件不要发送给他人。",
                  "导出设置", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
              if (choice == MessageBoxResult.Cancel) return;
              try
              {
-                 cfg.Save(dialog.FileName, choice == MessageBoxResult.Yes);
+                 cfg.Save(dialog.FileName, choice == MessageBoxResult.Yes, true);
                  MessageBox.Show(this, "设置已导出。", "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
              }
              catch (Exception ex) { MessageBox.Show(this, "导出失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error); }
@@ -1795,8 +2664,9 @@ namespace Codepass
                 bool importedFilterInvalid = !CodeExtractor.ValidateFilters(
                     imported.FilterKeywords, imported.FilterRegex, out importedFilterError);
                 if (imported.Port < 1 || imported.Port > 65535 || imported.MinLen < 1 || imported.MinLen > 32
-                    || imported.MaxLen < imported.MinLen || imported.MaxLen > 32
-                    || imported.AutoClearSeconds < 0 || imported.PrivacyMode < 0 || imported.PrivacyMode > 2
+                     || imported.MaxLen < imported.MinLen || imported.MaxLen > 32
+                     || imported.AutoClearSeconds < 0 || imported.PrivacyMode < 0 || imported.PrivacyMode > 2
+                     || imported.EmailPrivacyMode < 0 || imported.EmailPrivacyMode > 2
                       || importedAddressInvalid || importedNtfyInvalid || importedFilterInvalid
                     || (imported.SecretsIncluded && imported.LockEnabled && !imported.LockDataValid)
                    || (imported.SecretsIncluded && !imported.LockEnabled
@@ -1817,14 +2687,26 @@ namespace Codepass
                     imported.Token = cfg.Token;
                       imported.NtfyToken = cfg.NtfyToken;
                       imported.NtfyTopic = cfg.NtfyTopic;
+                       if (!imported.EmailPasswordRequired && string.Equals(imported.EmailServer, cfg.EmailServer, StringComparison.OrdinalIgnoreCase)
+                           && string.Equals(imported.EmailAccount, cfg.EmailAccount, StringComparison.OrdinalIgnoreCase))
+                       {
+                           imported.EmailAuth = cfg.EmailAuth;
+                           imported.EmailAuthEncRaw = cfg.EmailAuthEncRaw;
+                           imported.EmailAuthUndecryptable = cfg.EmailAuthUndecryptable;
+                       }
                     imported.LockEnabled = cfg.LockEnabled;
                    imported.AutoLockEnabled = cfg.AutoLockEnabled;
                   imported.LockSalt = cfg.LockSalt;
                   imported.LockHash = cfg.LockHash;
                }
                if (!imported.WindowWidthIncluded) imported.WindowWidth = cfg.WindowWidth;
-               if (!imported.WindowHeightIncluded) imported.WindowHeight = cfg.WindowHeight;
-               cfg.CopyFrom(imported);
+                if (!imported.WindowHeightIncluded) imported.WindowHeight = cfg.WindowHeight;
+                lock (Config.SaveGate)
+                {
+                 imported.EmailLastUid = imported.EmailUidValidity = imported.EmailLastUidJunk = imported.EmailUidValidityJunk = 0;
+                 imported.EmailMailboxState = "";
+                 cfg.CopyFrom(imported);
+                }
               ApplyConfiguredWindowSize();
               LoadValues();
                bool startupChanged = previous.StartWithWindows != cfg.StartWithWindows;
@@ -1838,7 +2720,8 @@ namespace Codepass
                         Program.SetStartup(cfg.StartWithWindows);
                     }
                     settingsRecoveryRequired = false;
-                    MessageBox.Show(this, "设置已导入并保存。" + (importedSecrets ? "" : "\r\n脱敏文件未包含令牌和密码锁，当前安全设置已保留。")
+                    Program.RefreshEmailWatchers();
+                    MessageBox.Show(this, "设置已导入并保存。" + (importedSecrets ? "" : "\r\n脱敏文件未包含令牌、邮箱授权码和密码锁，当前安全设置已保留。")
                        + "\r\n局域网访问令牌立即生效；端口和 ntfy 设置请重启应用。", "导入成功",
                       MessageBoxButton.OK, MessageBoxImage.Information);
                    if (cfg.ShouldAutoLock) LockWindow();
@@ -1923,7 +2806,10 @@ namespace Codepass
 
           void LockWindow()
           {
-              if (!cfg.LockEnabled || lockOverlay == null) return;
+               if (!cfg.LockEnabled || lockOverlay == null) return;
+               if (historyRawWindow != null) historyRawWindow.Close();
+               if (diagnosticsWindow != null) diagnosticsWindow.Close();
+               if (emailTestCancel != null) emailTestCancel.Cancel();
               // 隐藏可能仍在显示的轻提示，避免验证码短暂浮在锁屏上方。
               HideToast();
               lockOverlay.Visibility = Visibility.Visible;
@@ -1959,23 +2845,20 @@ namespace Codepass
              Style buttonStyle = root.Resources["SecondaryBtn"] as Style;
              StackPanel tokenHost = Find<StackPanel>(root, "tokenHost");
              StackPanel ntfyHost = Find<StackPanel>(root, "ntfyTokenHost");
+             StackPanel emailAuthHost = Find<StackPanel>(root, "emailAuthHost");
              fldToken = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
               fldNtfyToken = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
+              fldEmailAuth = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
                  AttachSecret(tokenHost, fldToken, "局域网接收必填");
                AttachSecret(ntfyHost, fldNtfyToken, "私有服务器可选");
+               if (emailAuthHost != null) fldEmailAuth.Attach(emailAuthHost);
          }
 
-         static void AttachSecret(StackPanel host, SecretField field, string hint)
-         {
-             if (host == null) return;
-             field.Attach(host);
-             TextBlock label = new TextBlock();
-             label.Text = hint;
-             label.Foreground = new SolidColorBrush(Color.FromRgb(0x8A, 0x8A, 0x8A));
-             label.FontSize = 12.5;
-             label.Margin = new Thickness(10, 0, 0, 0);
-             label.VerticalAlignment = VerticalAlignment.Center;
-             host.Children.Add(label);
+          static void AttachSecret(StackPanel host, SecretField field, string hint)
+          {
+              if (host == null) return;
+              field.Attach(host);
+              host.ToolTip = hint;
          }
 
          /// <summary>按当前配置刷新密码锁相关控件的可见/可用状态。</summary>
@@ -2017,7 +2900,7 @@ namespace Codepass
                  "MIN_LEN=" + ShellLiteral(txtMin.Text.Trim()) + "\r\n" +
                  "MAX_LEN=" + ShellLiteral(txtMax.Text.Trim()) + "\r\n";
             bool ok = false;
-            try { System.Windows.Clipboard.SetText(text); ok = true; } catch { }
+            try { ok = Program.CopyManually(text, new WindowInteropHelper(this).Handle); } catch { }
              MessageBox.Show(this,
                 ok ? text : "复制失败（剪贴板被占用），请重试。",
              ok ? "已复制到剪贴板" : "复制失败", MessageBoxButton.OK,
@@ -2045,30 +2928,74 @@ namespace Codepass
 
         // ---------- 记录 ----------
 
+        void SelectHistoryChannel(string channel)
+        {
+            historyChannel = channel == "email" ? "email" : channel == "sms" ? "sms" : "all";
+            RefreshHistory();
+            if (historyScroll != null) historyScroll.ScrollToTop();
+        }
+
         public void RefreshHistory()
         {
             if (listHost == null) return;
             listHost.Children.Clear();
             selectedRow = null;
+            int smsCount = 0, emailCount = 0;
             foreach (HistoryItem it in History.Snapshot())
-                listHost.Children.Add(BuildRow(it));
-            UpdateCount();
+            {
+                bool email = it.Channel == "email";
+                if (email) emailCount++; else smsCount++;
+                if (HistorySearch.Matches(it, historyChannel, txtHistorySearch == null ? "" : txtHistorySearch.Text))
+                    listHost.Children.Add(BuildRow(it));
+            }
+            SetNavState(tabSmsHistory, historyChannel == "sms");
+            SetNavState(tabEmailHistory, historyChannel == "email");
+            SetNavState(tabAllHistory, historyChannel == "all");
+            if (tabAllHistory != null) tabAllHistory.Content = "全部 (" + (smsCount + emailCount) + ")";
+            if (tabSmsHistory != null) tabSmsHistory.Content = "短信 (" + smsCount + ")";
+            if (tabEmailHistory != null) tabEmailHistory.Content = "邮件 (" + emailCount + ")";
+            if (lblCount != null)
+                lblCount.Text = "显示 " + listHost.Children.Count + " / " + (smsCount + emailCount) + " 条 · 最多 " + History.Max + " 条";
+            if (lblHistoryEmpty != null)
+            {
+                lblHistoryEmpty.Text = txtHistorySearch != null && txtHistorySearch.Text.Trim().Length > 0
+                    ? "没有匹配的记录，请调整搜索词或重置筛选"
+                    : historyChannel == "email" ? "暂无邮箱验证码记录" : historyChannel == "sms" ? "暂无短信验证码记录" : "暂无验证码记录";
+                lblHistoryEmpty.Visibility = listHost.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
 
         Border BuildRow(HistoryItem it)
         {
             Grid g = new Grid();
-            AddCol(g, 140, false);
-            AddCol(g, 80, false);
-            AddCol(g, 120, false);
-            AddCol(g, 0, true);
+            AddCol(g, 128, false);
+            AddCol(g, 1, true);
+            AddCol(g, 100, false);
+            AddCol(g, 2, true);
 
             g.Children.Add(Cell(it.Time, 0, FgBody, false));
-            g.Children.Add(Cell(it.Source, 1, FgBody, false));
+            TextBlock senderCell = Cell(it.Source, 1, FgBody, false);
+            senderCell.ToolTip = String.IsNullOrEmpty(it.Source) ? null : it.Source;
+            g.Children.Add(senderCell);
             TextBlock codeCell = Cell(it.Code, 2, AccentTx, true);
             g.Children.Add(codeCell);
-             TextBlock rawCell = Cell(it.Raw, 3, FgFaint, false);
-             rawCell.ToolTip = String.IsNullOrEmpty(it.Raw) ? null : it.Raw;
+              TextBlock rawCell = Cell(string.IsNullOrEmpty(it.Raw) && it.Channel == "email" ? "未保存正文" : it.Raw, 3, FgFaint, false);
+             rawCell.ToolTip = new ToolTip
+             {
+                 MaxWidth = 560,
+                 Content = new ScrollViewer { MaxHeight = 320, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                     Content = new TextBlock { Text = HistoryRawText(it), TextWrapping = TextWrapping.Wrap, MaxWidth = 520 } }
+             };
+             ToolTipService.SetInitialShowDelay(rawCell, 300);
+             ToolTipService.SetShowDuration(rawCell, 30000);
+             rawCell.Background = Brushes.Transparent;
+             rawCell.Cursor = Cursors.Hand;
+             rawCell.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args)
+             {
+                 if (args.ClickCount != 2) return;
+                 ShowHistoryRaw(it);
+                 args.Handled = true;
+             };
              g.Children.Add(rawCell);
 
             Border row = new Border();
@@ -2078,19 +3005,19 @@ namespace Codepass
             row.Background = Brushes.Transparent;
             row.Cursor = Cursors.Hand;
             row.Child = g;
-            row.ToolTip = "单击验证码可复制";
+            row.ToolTip = "单击验证码可复制；双击原文查看全部内容";
 
             string code = it.Code;
             codeCell.Cursor = Cursors.Hand;
-            codeCell.ToolTip = "单击复制验证码";
+            codeCell.ToolTip = it.CanBeLatest ? "单击复制验证码" : "仅历史：复查/首次补查不更新最新验证码；仍可单击手动复制";
             codeCell.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
             {
                 if (string.IsNullOrEmpty(code)) return;
                 // 只复制验证码；点击“原文”等区域不再占用剪贴板（避免点击卡顿）。
                 try
                 {
-                    System.Windows.Clipboard.SetText(code);
-                    ShowToast("已复制验证码 " + code);
+                    if (Program.CopyManually(code, new WindowInteropHelper(this).Handle)) ShowToast("已复制验证码 " + code);
+                    else ShowToast("复制失败，剪贴板被占用，请重试");
                 }
                 catch { ShowToast("复制失败，剪贴板被占用，请重试"); }
             };
@@ -2108,7 +3035,7 @@ namespace Codepass
         static void AddCol(Grid g, double width, bool star)
         {
             ColumnDefinition c = new ColumnDefinition();
-            if (star) c.Width = new GridLength(1, GridUnitType.Star);
+            if (star) c.Width = new GridLength(width > 0 ? width : 1, GridUnitType.Star);
             else c.Width = new GridLength(width);
             g.ColumnDefinitions.Add(c);
         }
@@ -2123,29 +3050,80 @@ namespace Codepass
             t.HorizontalAlignment = HorizontalAlignment.Center;
             t.TextAlignment = TextAlignment.Center;
             t.TextTrimming = TextTrimming.CharacterEllipsis;
+            if (col == 1 || col == 3)
+            {
+                t.HorizontalAlignment = HorizontalAlignment.Stretch;
+                t.TextAlignment = col == 1 ? TextAlignment.Center : TextAlignment.Left;
+                t.Margin = new Thickness(8, 0, 8, 0);
+            }
             if (bold) t.FontWeight = FontWeights.SemiBold;
             Grid.SetColumn(t, col);
             return t;
         }
 
-        public void OnNewRecord(HistoryItem it)
+        static string HistoryRawText(HistoryItem item)
         {
-            if (listHost == null) return;
-            listHost.Children.Insert(0, BuildRow(it));
-            while (listHost.Children.Count > History.Max)
-            {
-                UIElement last = listHost.Children[listHost.Children.Count - 1];
-                listHost.Children.RemoveAt(listHost.Children.Count - 1);
-                if (last == selectedRow) selectedRow = null;
-            }
-            UpdateCount();
+            if (!string.IsNullOrEmpty(item.Raw)) return item.Raw;
+            return item.Channel == "email" ? "这条邮件未保存正文。可在邮箱设置中开启“在记录中保存邮件内容”，仅对之后收到的邮件生效。"
+                : "这条记录没有原文内容。";
         }
 
-        void UpdateCount()
+        Window CreateHistoryRawWindow(HistoryItem item)
         {
-            if (lblCount != null)
-                lblCount.Text = "共 " + (listHost == null ? 0 : listHost.Children.Count)
-                              + " 条 · 最多保留 " + History.Max + " 条";
+            Window dialog = new Window
+            {
+                Title = "记录原文", Width = 760, Height = 520, MinWidth = 480, MinHeight = 300,
+                Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false, ResizeMode = ResizeMode.CanResize,
+                Background = MakeBrush(0xF3, 0xF3, 0xF3),
+                FontFamily = FontFamily, FontSize = 14, Icon = Icon
+            };
+            Grid layout = new Grid { Margin = new Thickness(20) };
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            layout.Children.Add(new TextBlock { Text = item.Time + "  ·  " + item.Source,
+                TextWrapping = TextWrapping.Wrap, Foreground = FgBody, Margin = new Thickness(0, 0, 0, 12) });
+            TextBox original = new TextBox
+            {
+                Name = "txtHistoryRawFull", Text = HistoryRawText(item), IsReadOnly = true,
+                AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Padding = new Thickness(12), Background = Brushes.White, Foreground = FgBody,
+                BorderBrush = MakeBrush(0xDD, 0xDD, 0xDD), BorderThickness = new Thickness(1)
+            };
+            Grid.SetRow(original, 1); layout.Children.Add(original);
+            Button close = new Button { Content = "关闭", MinWidth = 84, Height = 34,
+                HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+            FrameworkElement root = Content as FrameworkElement;
+            if (root != null) close.Style = root.Resources["SecondaryBtn"] as Style;
+            close.Click += delegate { dialog.Close(); };
+            Grid.SetRow(close, 2); layout.Children.Add(close);
+            dialog.Content = layout;
+            dialog.PreviewKeyDown += delegate(object sender, KeyEventArgs args)
+            {
+                if (args.Key == Key.Escape) { dialog.Close(); args.Handled = true; }
+            };
+            historyRawWindow = dialog;
+            dialog.Closed += delegate { if (historyRawWindow == dialog) historyRawWindow = null; };
+            dialog.StateChanged += delegate
+            {
+                if (dialog.WindowState == WindowState.Minimized && cfg.ShouldAutoLock) LockWindow();
+            };
+            return dialog;
+        }
+
+        void ShowHistoryRaw(HistoryItem item)
+        {
+            if (lockOverlay != null && lockOverlay.Visibility == Visibility.Visible) return;
+            Window dialog = CreateHistoryRawWindow(item);
+            dialog.ShowDialog();
+        }
+
+        public void OnNewRecord(HistoryItem it)
+        {
+            // 另一分类新增记录也可能淘汰当前分类的最旧记录，始终以历史快照刷新。
+            RefreshHistory();
         }
 
         // 页面内轻提示：显示约 1.4 秒后淡出, 用于复制成功/失败反馈。
@@ -2258,12 +3236,10 @@ namespace Codepass
 
           protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
           {
-              if (!ApplySettings())
-              {
-                  allowClose = false;
-                  e.Cancel = true;
-                  return;
-              }
+               if (emailTestCancel != null) emailTestCancel.Cancel();
+               // 保存失败会还原输入并提示；不能因此阻止关闭/托盘退出或系统关机。
+               if (!SaveHistoryRetention()) Log.Write("closing with history retention setting not saved");
+               if (!ApplySettings()) Log.Write("closing with settings not saved; previous configuration retained");
               SaveWindowSize();
               if (!allowClose)
              {

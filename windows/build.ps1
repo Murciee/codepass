@@ -4,7 +4,7 @@
 # NOTE: keep this file ASCII-only (Windows PowerShell mis-decodes UTF-8 without BOM).
 
 [CmdletBinding()]
-param([string]$OutputDirectory = '')
+param([string]$OutputDirectory = '', [switch]$SkipPackage, [string]$ReleaseDirectory = '')
 
 $ErrorActionPreference = 'Stop'
 
@@ -13,6 +13,35 @@ $srcs = Join-Path $root 'src\*.cs'
 $dist = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { Join-Path $root 'dist' } else { [IO.Path]::GetFullPath($OutputDirectory) }
 $out  = Join-Path $dist 'codepass.exe'
 $icon = Join-Path $root 'codepass.ico'
+$repo = Split-Path -Parent $root
+$sourceFiles = @(Get-ChildItem -LiteralPath (Join-Path $root 'src') -Filter '*.cs' -File | Sort-Object Name)
+$version = [regex]::Match([IO.File]::ReadAllText((Join-Path $root 'src\Updater.cs')), 'AppVersion\s*=\s*"(\d+\.\d+\.\d+)"').Groups[1].Value
+if (-not $version) { throw 'AppVersion not found' }
+$documents = @(
+    @{ Path = 'README.md'; Pattern = '\*\*v(\d+\.\d+\.\d+)\*\*' },
+    @{ Path = 'README.en.md'; Pattern = '\*\*v(\d+\.\d+\.\d+)\*\*' },
+    @{ Path = 'CHANGELOG.md'; Pattern = '(?m)^## (\d+\.\d+\.\d+)' },
+    @{ Path = 'docs\RELEASE_NOTES.md'; Pattern = '(?m)^## codepass v(\d+\.\d+\.\d+)' }
+)
+foreach ($document in $documents) {
+    $declared = [regex]::Match([IO.File]::ReadAllText((Join-Path $repo $document.Path)), $document.Pattern).Groups[1].Value
+    if ($declared -ne $version) { throw ('Version mismatch: ' + $document.Path + ' expected ' + $version) }
+}
+$inputs = @($sourceFiles | ForEach-Object { 'src/' + $_.Name + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash })
+$inputs += 'build.ps1:' + (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
+$inputs += 'codepass.ico:' + (Get-FileHash -LiteralPath $icon -Algorithm SHA256).Hash
+$sha = [Security.Cryptography.SHA256]::Create()
+try { $sourceHash = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($inputs -join "`n"))))).Replace('-','').ToLowerInvariant() }
+finally { $sha.Dispose() }
+$commit = 'nogit'; $dirty = $true
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    $gitCommit = & git -C $repo rev-parse --short=12 HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $gitCommit -match '^[0-9a-f]{7,12}$') { $commit = [string]$gitCommit }
+    $gitChanges = @(& git -C $repo status --porcelain -- windows/src windows/build.ps1 2>$null)
+    if ($LASTEXITCODE -eq 0) { $dirty = $gitChanges.Count -gt 0 }
+}
+$builtUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+$buildId = $version + '+' + [DateTime]::UtcNow.ToString('yyyyMMddHHmmss') + '.' + $commit + $(if ($dirty) { '.dirty' }) + '.src' + $sourceHash.Substring(0,12)
 
 if (-not (Test-Path $icon)) {
     throw "Application icon not found: $icon"
@@ -42,19 +71,33 @@ function Resolve-Gac([string]$name) {
 
 $wpfNames = @('PresentationFramework', 'PresentationCore', 'WindowsBase', 'System.Xaml')
 $zipNames = @('System.IO.Compression', 'System.IO.Compression.FileSystem')
-$refs = @('System.dll', 'System.Core.dll', 'System.Windows.Forms.dll', 'System.Drawing.dll')
+# 邮箱授权码加密依赖默认引用的 System.Security；此处补 UIAutomation (QQ 弹窗文字读取)
+$extraNames = @('UIAutomationClient', 'UIAutomationTypes')
+$refs = @('System.dll', 'System.Core.dll', 'System.Windows.Forms.dll', 'System.Drawing.dll', 'System.Runtime.Serialization.dll')
 foreach ($n in $wpfNames) { $refs += (Resolve-Gac $n) }
 foreach ($n in $zipNames) { $refs += (Resolve-Gac $n) }
+foreach ($n in $extraNames) { $refs += (Resolve-Gac $n) }
 $refArg = '/reference:' + ($refs -join ',')
 
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-
+$stamp = Join-Path $dist 'BuildStamp.g.cs'
+$stampText = 'using System.Reflection;' + "`r`n" +
+    '[assembly: AssemblyVersion("' + $version + '.0")]' + "`r`n" +
+    '[assembly: AssemblyFileVersion("' + $version + '.0")]' + "`r`n" +
+    '[assembly: AssemblyInformationalVersion("' + $buildId + '")]'
+[IO.File]::WriteAllText($stamp, $stampText, [Text.Encoding]::UTF8)
 & $csc /nologo /target:winexe /optimize+ /codepage:65001 `
     $refArg `
     $(if (Test-Path $icon) { "/win32icon:$icon" }) `
-    /out:"$out" $srcs
+    /out:"$out" $srcs $stamp
 
 if ($LASTEXITCODE -ne 0) { throw "build failed (exit $LASTEXITCODE)" }
+$exeHash = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash
+$metadata = [ordered]@{ version = $version; buildId = $buildId; builtUtc = $builtUtc; commit = $commit; dirty = $dirty; sourceSha256 = $sourceHash; exeSha256 = $exeHash }
+[IO.File]::WriteAllText((Join-Path $dist 'build-info.json'), ($metadata | ConvertTo-Json), [Text.Encoding]::UTF8)
+Write-Host ('BUILD_ID=' + $buildId)
+Write-Host ('SHA256=' + $exeHash)
+if ($SkipPackage) { Write-Host "OK -> $out (package skipped)"; return }
 
 # Do not copy config.ini into the build output. It is runtime data and may
 # contain tokens/history-related settings from a previous local run. The
@@ -63,11 +106,12 @@ if ($LASTEXITCODE -ne 0) { throw "build failed (exit $LASTEXITCODE)" }
 # Package the portable build into release\codepass-windows.zip.
 # Entries use '/' separators: Compress-Archive on Windows PowerShell 5.1 writes
 # '\' which non-Windows unzip tools treat as literal filename characters.
-$releaseDir = Join-Path $root '..\release'
+$releaseDir = if ([string]::IsNullOrWhiteSpace($ReleaseDirectory)) { Join-Path $root '..\release' } else { [IO.Path]::GetFullPath($ReleaseDirectory) }
 $zipOut = Join-Path $releaseDir 'codepass-windows.zip'
 $zipTmp = "$zipOut.tmp"
 $packageAllow = @(
     @{ Name = 'codepass.exe';             Source = $out },
+    @{ Name = 'build-info.json';          Source = (Join-Path $dist 'build-info.json') },
     @{ Name = 'README.md';                Source = (Join-Path $root '..\README.md') },
     @{ Name = 'README.en.md';             Source = (Join-Path $root '..\README.en.md') },
     @{ Name = 'CHANGELOG.md';             Source = (Join-Path $root '..\CHANGELOG.md') },
@@ -79,7 +123,18 @@ $packageAllow = @(
     @{ Name = 'THIRD_PARTY_NOTICES.md';    Source = (Join-Path $root '..\THIRD_PARTY_NOTICES.md') },
     @{ Name = 'docs/BUILD_ANDROID.md';     Source = (Join-Path $root '..\docs\BUILD_ANDROID.md') },
     @{ Name = 'docs/RELEASE_CHECKLIST.md'; Source = (Join-Path $root '..\docs\RELEASE_CHECKLIST.md') },
+    @{ Name = 'docs/windows-regression.md'; Source = (Join-Path $root '..\docs\windows-regression.md') },
+    @{ Name = 'docs/history-diagnostics-layout-validation-20261011.md'; Source = (Join-Path $root '..\docs\history-diagnostics-layout-validation-20261011.md') },
+    @{ Name = 'docs/v1.0.4-validation-20261011.md'; Source = (Join-Path $root '..\docs\v1.0.4-validation-20261011.md') },
+    @{ Name = 'assets/v1.0.4/history-search.png'; Source = (Join-Path $root '..\assets\v1.0.4\history-search.png') },
+    @{ Name = 'assets/v1.0.4/email-status-narrow.png'; Source = (Join-Path $root '..\assets\v1.0.4\email-status-narrow.png') },
+    @{ Name = 'assets/v1.0.4/sms-settings-narrow.png'; Source = (Join-Path $root '..\assets\v1.0.4\sms-settings-narrow.png') },
+    @{ Name = 'assets/v1.0.4/privacy-settings.png'; Source = (Join-Path $root '..\assets\v1.0.4\privacy-settings.png') },
+    @{ Name = 'assets/v1.0.4/diagnostics-preview-entry.png'; Source = (Join-Path $root '..\assets\v1.0.4\diagnostics-preview-entry.png') },
+    @{ Name = 'assets/codepass-sms.png'; Source = (Join-Path $root '..\assets\codepass-sms.png') },
+    @{ Name = 'assets/ui-overview.png'; Source = (Join-Path $root '..\assets\ui-overview.png') },
     @{ Name = 'docs/RELEASE_NOTES.md';     Source = (Join-Path $root '..\docs\RELEASE_NOTES.md') },
+    @{ Name = 'GMAIL_APP_PASSWORD.md';   Source = (Join-Path $root '..\docs\GMAIL_APP_PASSWORD.md') },
     @{ Name = 'phone/README.md';          Source = (Join-Path $root '..\phone\README.md') },
     @{ Name = 'phone/no-root.md';         Source = (Join-Path $root '..\phone\no-root.md') },
     @{ Name = 'phone/ntfy.md';            Source = (Join-Path $root '..\phone\ntfy.md') },

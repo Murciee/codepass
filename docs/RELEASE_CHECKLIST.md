@@ -22,9 +22,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-public-release.p
 
 ## 二、隐私与默认值核对
 
-- [ ] 隐私说明与代码实际行为一致（记录条数、正文摘要、密码锁不加密、剪贴板清理默认关闭）；
+- [ ] 隐私说明与代码实际行为一致（100 条合计、默认 10 分钟记录清理、正文默认值、Windows 当前用户历史加密/旧明文迁移、密码锁独立、剪贴板清理默认关闭）；
 - [ ] 没有把“绝对安全”“完全本地”“绝不泄露”等不实表述写进文档或界面；
 - [ ] ntfy 的风险提示准确，未把公共主题名描述成可靠的访问控制。
+- [ ] 「隐私设置」的短信/邮件三档通知分别生效，旧配置迁移保持原通知模式；掩码先于截断，剪贴板与历史原文的行为有明确说明。
+- [ ] 脱敏诊断先预览再保存，保存文本与预览一致；不含账号、地址、路径、凭据、验证码、正文、规则文本或原始日志，不自动上传。
 
 ## 三、敏感信息检查
 
@@ -44,13 +46,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-public-release.p
 - [ ] 发布包内容与各 `README`（`windows/`、`phone/`、[`docs/BUILD_ANDROID.md`](BUILD_ANDROID.md)）中描述的文件清单一致；
 - [ ] `release/` 仅放当前正式附件：`codepass-windows.zip`、`codepass-sms-magisk.zip`、签名验证通过的 `codepass-lsposed-release.apk`；Debug 与 unsigned APK 留在开发构建目录。
 - [ ] 为附件生成 `SHA256SUMS.txt`，记录 APK 的公开签名证书 SHA-256 指纹，证书口令及私钥不进入仓库。
+- [ ] Windows 构建版本与文档一致，发行 EXE 的版本戳、`build-info.json` 和实际 SHA-256 匹配，打包不混入运行数据。
 
 ## 五、行为与承诺核对
 
 - [ ] 文档中描述的功能与当前代码一致；
+- [ ] 全部 5 份 README 与发布说明已同步记录搜索/筛选、诊断入口、邮箱分区与窄窗口布局；配置导出与诊断导出的用途明确。
+- [ ] 780 与 1280 宽度检查记录、短信、邮箱、隐私、关于页面；实时状态置顶，输入与按钮不被横向裁切，扩大窗口恢复左右标签。
 - [ ] 未宣传不具备的能力（持久化补发、端到端加密、全平台兼容、正式签名）；
 - [ ] 未要求用户关闭杀毒软件或系统安全功能；
-- [ ] 版本号与 Android `app/build.gradle`、`phone/magisk/module.prop`、`windows/src/Updater.cs` 的 `AppVersion`、发布说明一致；升级使用更大的 `versionCode`。
+- [ ] Windows v1.0.4 与发布说明一致；手机端本次沿用兼容的 v1.0.3 已签名附件，不把未重建的 Android 版本伪装成 v1.0.4；后续 Android 版本升级时再增加 `versionCode`。
 
 ## 六、发布动作
 
@@ -60,6 +65,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-public-release.p
 - [ ] 未设置 Windows 令牌时只监听回环；局域网必须使用随机令牌，错误/缺失令牌返回 403。绑定地址/端口或令牌有无修改后重启测试。
 - [ ] ntfy 的 HTTP 地址被拒绝；LSPosed 清空目标后确实停止转发，普通应用不能通过 Provider 读取配置。
 - [ ] 发布说明写明已测试与未测试的环境；
+- [ ] 运行 `windows\tests\Run-All.ps1`，保留 `summary.json` 与日志；若使用 `-ExePath`，传入带匹配构建元数据的本次 EXE。见 [回归说明](windows-regression.md)。
+- [ ] 汇总中 `evidenceUnavailable` 为 0，截图有效且人工检查完成；锁定桌面下只通过功能/几何断言不能替代视觉验收。
 - [ ] 上传的是**源码**与**构建产物**，不包含任何本地数据；
 - [ ] 首次发布后，检查仓库首页是否正确显示许可证；
 - [ ] 确认 Issue 模板或 README 已提醒“请勿粘贴真实短信与令牌”。

@@ -30,8 +30,8 @@ namespace Codepass
             if (c != null && IsCode(c.Trim(), min, max)) return c.Trim();
 
             // 3) 关键词上下文 (code 加词边界, 避免 encode / barcode 之类误命中)
-            string kw = @"(验证码|校验码|动态码|动态密码|短信码|verification\s*code|security\s*code|one[-\s]*time\s*code|\bOTP\b|\bcode\b|密码)[^\d]{0,12}(\d{" + min + "," + max + "})";
-            Match m = Regex.Match(s, kw, RegexOptions.IgnoreCase);
+            string kw = @"(验证码|校验码|安全代码|安全码|动态码|动态密码|短信码|verification\s*code|security\s*code|one[-\s]*time\s*code|\bOTP\b|\bcode\b|密码)[^\d]{0,12}(?<!\d)([0-9]{" + min + "," + max + @"})(?!\d)";
+            Match m = Regex.Match(s, kw, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
             if (m.Success) return m.Groups[2].Value;
 
             // 明确写出“验证码”的短信优先保留，即使正文末尾附带运营商反诈提醒。
@@ -48,6 +48,16 @@ namespace Codepass
             }
 
             return null;
+        }
+
+        // 邮件主题优先路径只接受明确的验证码上下文，不让主题工单号抢占正文。
+        public static string ExtractExplicit(string text, int min, int max)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            if (IsCode(text.Trim(), min, max)) return text.Trim();
+            Match m = Regex.Match(text, @"(?:验证码|校验码|安全代码|安全码|动态码|verification\s*code|security\s*code|one[-\s]*time\s*code|\bOTP\b)\s*(?:is|为|是)?\s*[:：=]?\s*(?<!\d)([0-9]{" + min + "," + max + @"})(?!\d)",
+                RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
+            return m.Success ? m.Groups[1].Value : null;
         }
 
         /// <summary>

@@ -38,6 +38,7 @@ namespace Codepass
 
         public static void Write(string msg)
         {
+            Diagnostics.ObserveLog(msg);
             try
             {
                 lock (Gate)
@@ -68,10 +69,63 @@ namespace Codepass
         static System.Windows.Forms.NotifyIcon tray;
         static System.Windows.Forms.ContextMenuStrip trayMenu;
         static DispatcherTimer clearTimer;
+        static DispatcherTimer historyRetentionTimer;
+        static Thread httpThread;
+        static TcpListener httpListener;
+        static readonly object HttpGate = new object();
         static volatile string pendingClipboardCode;
-        static volatile string latestCode;
+        static readonly object ClipboardWriteGate = new object();
+        static long clipboardRequest;
+        internal sealed class LatestReceipt
+        {
+            public readonly string Code;
+            public readonly bool EmailChannel;
+            public readonly long ReceivedUtcTicks;
+            internal LatestReceipt(string code, bool emailChannel, long receivedUtcTicks)
+            { Code = code; EmailChannel = emailChannel; ReceivedUtcTicks = receivedUtcTicks; }
+        }
+        static volatile LatestReceipt latestReceipt;
+
+        internal static void SetLatestCode(string code, bool emailChannel)
+        {
+            latestReceipt = string.IsNullOrEmpty(code) ? null : new LatestReceipt(code, emailChannel, DateTime.UtcNow.Ticks);
+        }
+
+        internal static LatestReceipt GetLatestReceipt()
+        {
+            lock (Config.SaveGate)
+            {
+                if (cfg != null) ExpireLatestReceipt(cfg.HistoryRetentionMinutes, DateTime.UtcNow);
+                return latestReceipt;
+            }
+        }
+
+        internal static void RestoreLatestFromHistory()
+        {
+            lock (Config.SaveGate)
+            {
+            HistoryItem item = History.LatestUnexpiredRecord(cfg == null ? 0 : cfg.HistoryRetentionMinutes, DateTime.UtcNow);
+            SetLatestRecord(item);
+            }
+        }
+        internal static void SetLatestRecord(HistoryItem item)
+        {
+            latestReceipt = item == null || string.IsNullOrEmpty(item.Code) ? null
+                : new LatestReceipt(item.Code, item.Channel == "email", item.ReceivedUtcTicks);
+        }
+
+        internal static void ExpireLatestReceipt(int minutes, DateTime nowUtc)
+        {
+            lock (Config.SaveGate)
+            {
+            LatestReceipt latest = latestReceipt;
+            if (minutes > 0 && latest != null && latest.ReceivedUtcTicks < nowUtc.AddMinutes(-minutes).Ticks)
+                RestoreLatestFromHistory();
+            }
+        }
         static volatile bool running = true;
         internal static bool StartupSyncFailed { get; private set; }
+        internal static bool Running { get { return running; } }
 
         static int activeClients;
         const int MaxClients = 32;
@@ -87,11 +141,13 @@ namespace Codepass
         [STAThread]
         static void Main(string[] args)
         {
+            bool silent = IsSilentStartup(args);
             // 单实例, 避免重复启动导致端口冲突
             bool createdNew;
             singleInstance = new Mutex(true, "Codepass_SingleInstance", out createdNew);
             if (!createdNew)
             {
+                 if (silent) return;
                  MessageBox.Show(null, "codepass 已经在运行，请从系统托盘打开。", "codepass",
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
                 return;
@@ -106,6 +162,7 @@ namespace Codepass
 
             appDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             Log.Init(Path.Combine(appDir, "app.log"));
+            Config.RecycleStaleTemporaryFiles(appDir);
 
             cfg = Config.Load(Path.Combine(appDir, "config.ini"));
             if (cfg.Port < 1 || cfg.Port > 65535)
@@ -131,14 +188,17 @@ namespace Codepass
                     if (string.Equals(a, "--dry", StringComparison.OrdinalIgnoreCase)) cfg.Dry = true;
             }
             History.Init(Path.Combine(appDir, "history.txt"));
-            List<HistoryItem> savedHistory = History.Snapshot();
-            if (savedHistory.Count > 0) latestCode = savedHistory[0].Code;
+            try { History.PruneExpired(cfg.HistoryRetentionMinutes, DateTime.UtcNow); }
+            catch (IOException) { Log.Write("history expiry pending: storage failure"); }
+            RestoreLatestFromHistory();
 
             Log.Write("========== start ==========");
             Log.Write("port=" + cfg.Port
                 + " ntfy=" + (cfg.NtfyTopic.Length == 0 ? "(off)" : "(on)")
                 + " token=" + (cfg.Token.Length == 0 ? "(off)" : "(on)")
                 + " ntfy_token=" + (cfg.NtfyToken.Length == 0 ? "(off)" : "(on)")
+                + " email=" + (cfg.EmailEnabled ? "(on)" : "(off)")
+                + " qq_popup=" + (cfg.QqPopupEnabled ? "(on)" : "(off)")
                 + " dry=" + cfg.Dry);
 
             // WinForms 托盘菜单需要视觉样式, 否则右键菜单是经典外观
@@ -161,6 +221,7 @@ namespace Codepass
             try
             {
                 mainWindow = new MainWindow(cfg, Path.Combine(appDir, "config.ini"));
+                PrepareMainWindow(mainWindow, silent);
             }
             catch (Exception ex)
             {
@@ -173,12 +234,19 @@ namespace Codepass
             BuildTray();
             StartHttp();
             if (cfg.NtfyTopic.Length > 0) StartNtfy();
+            RefreshEmailWatchers();
 
             Log.Write("started.");
-            app.Run(mainWindow);
+            historyRetentionTimer = new DispatcherTimer();
+            historyRetentionTimer.Interval = TimeSpan.FromSeconds(15);
+            historyRetentionTimer.Tick += delegate { ApplyHistoryRetention(); };
+            historyRetentionTimer.Start();
+            RunMainWindow(app, mainWindow, silent);
 
             running = false;
+            StopWatchersForExit();
             try { if (clearTimer != null) { clearTimer.Stop(); clearTimer = null; } } catch { }
+            try { if (historyRetentionTimer != null) { historyRetentionTimer.Stop(); historyRetentionTimer = null; } } catch { }
             try { if (tray != null) { tray.Visible = false; tray.Dispose(); tray = null; } } catch { }
             try { if (trayMenu != null) { trayMenu.Dispose(); trayMenu = null; } } catch { }
             try { if (singleInstance != null) singleInstance.ReleaseMutex(); } catch { }
@@ -203,7 +271,7 @@ namespace Codepass
                 {
                     string exe = Assembly.GetExecutingAssembly().Location;
                     if (String.IsNullOrEmpty(exe)) throw new InvalidOperationException("无法确定程序路径");
-                    key.SetValue("codepass", "\"" + exe + "\"", RegistryValueKind.String);
+                    key.SetValue("codepass", StartupCommand(exe), RegistryValueKind.String);
                 }
                 else
                 {
@@ -211,6 +279,46 @@ namespace Codepass
                 }
             }
             StartupSyncFailed = false;
+        }
+
+        internal static string StartupCommand(string exe) { return "\"" + exe + "\" --startup"; }
+
+        internal static bool IsSilentStartup(string[] args)
+        {
+            if (args != null) foreach (string arg in args)
+                if (string.Equals(arg, "--startup", StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        internal static void RunMainWindow(System.Windows.Application application, MainWindow window, bool silent)
+        {
+            PrepareMainWindow(window, silent);
+            application.MainWindow = window;
+            if (silent) { window.ShowInTaskbar = false; application.Run(); }
+            else application.Run(window);
+        }
+
+        internal static void PrepareMainWindow(MainWindow window, bool silent)
+        {
+            if (silent) window.ShowInTaskbar = false;
+            new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
+        }
+
+        internal static void ApplyHistoryRetention()
+        {
+            try
+            {
+                if (cfg != null && History.PruneExpired(cfg.HistoryRetentionMinutes, DateTime.UtcNow) > 0 && mainWindow != null)
+                {
+                    if (mainWindow.Dispatcher.CheckAccess()) mainWindow.RefreshHistory();
+                    else mainWindow.Dispatcher.BeginInvoke(new Action(delegate { mainWindow.RefreshHistory(); }));
+                }
+            }
+            catch (IOException)
+            {
+                if (cfg != null) ExpireLatestReceipt(cfg.HistoryRetentionMinutes, DateTime.UtcNow);
+                EmailStatusChanged();
+            }
         }
 
         static void BuildTray()
@@ -312,7 +420,40 @@ namespace Codepass
 
         internal static void HandleIncoming(string text, string src, string sender)
         {
-            if (CodeExtractor.IsFiltered(text, cfg.FilterKeywords, cfg.FilterRegex))
+            HandleIncoming(text, src, sender, true, true, false);
+        }
+
+        /// <summary>邮箱/弹窗来源的验证码：按邮箱设置决定是否弹提示与自动复制。</summary>
+        internal static void HandleEmail(string text, string sender, string src)
+        {
+            HandleIncoming(text, src, sender, cfg.EmailAutoCopy, cfg.EmailNotify, true);
+        }
+
+        internal static void SubmitEmail(string text, string sender, string code, string messageKey, Config identity,
+            bool allowAutoCopy, Func<bool> canCommit, string mailboxKey = null, long mailUid = 0, bool updateLatest = true)
+        {
+            DeliverIncoming(text, "email", sender, identity.EmailAutoCopy && allowAutoCopy, identity.EmailNotify,
+                true, code, messageKey, identity, canCommit, mailboxKey, mailUid, updateLatest);
+        }
+
+        internal static void SubmitReceivedEmail(string text, string sender, string code, string messageKey, Config identity,
+            bool allowAutoCopy, Func<bool> canCommit, string mailboxKey, long mailUid, bool updateLatest, DateTime receivedUtc)
+        {
+            DeliverIncoming(text, "email", sender, identity.EmailAutoCopy && allowAutoCopy, identity.EmailNotify,
+                true, code, messageKey, identity, canCommit, mailboxKey, mailUid, updateLatest, receivedUtc);
+        }
+
+        internal static void HandleIncoming(string text, string src, string sender,
+            bool autoCopy, bool notify, bool emailChannel)
+        {
+            lock (Config.SaveGate)
+            {
+            if (!emailChannel && SmsExceedsLengthLimit(text, cfg.SmsMaxLength))
+            {
+                Log.Write("[" + src + "] SMS skipped: length limit exceeded");
+                return;
+            }
+            if (!emailChannel && CodeExtractor.IsFiltered(text, cfg.FilterKeywords, cfg.FilterRegex))
             {
                 Log.Write("[" + src + "] message filtered");
                 return;
@@ -323,16 +464,58 @@ namespace Codepass
                 Log.Write("[" + src + "] 未识别到验证码");
                 return;
             }
+            DeliverIncoming(text, src, sender, autoCopy, notify, emailChannel, code, "", cfg, null);
+            }
+        }
+
+        // 按字符计数；合法代理对（如 emoji）算一个字符，空格与换行也计入。
+        internal static bool SmsExceedsLengthLimit(string text, int limit)
+        {
+            if (text == null) return false;
+            if (limit < 1 || limit > Config.MaximumSmsMaxLength) limit = Config.DefaultSmsMaxLength;
+            int count = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+                if (++count > limit) return true;
+            }
+            return false;
+        }
+
+        static void DeliverIncoming(string text, string src, string sender, bool autoCopy, bool notify, bool emailChannel,
+            string code, string messageKey, Config identity, Func<bool> canCommit, string mailboxKey = null, long mailUid = 0, bool updateLatest = true, DateTime? receivedUtc = null)
+        {
+            lock (Config.SaveGate)
+            {
+            if (canCommit != null && !canCommit()) return;
             Log.Write("[" + src + "] code recognized");
             if (cfg.Dry) { Log.Write("[dry] skip clipboard"); return; }
-            latestCode = code;
 
             HistoryItem it = new HistoryItem();
-            it.Time = DateTime.Now.ToString("MM-dd HH:mm:ss");
-            it.Source = History.ExtractSender(text, sender);
+            DateTime received = receivedUtc.HasValue ? receivedUtc.Value.ToUniversalTime() : DateTime.UtcNow;
+            if (received > DateTime.UtcNow) received = DateTime.UtcNow;
+            it.ReceivedUtcTicks = received.Ticks;
+            it.Time = received.ToLocalTime().ToString("MM-dd HH:mm:ss");
+            it.Source = emailChannel ? (MailRules.SenderAddress(sender) ?? "未知发件人") : History.ExtractSender(text, sender);
+            it.MessageKey = messageKey;
+            it.MailboxKey = mailboxKey; it.MailUid = mailUid;
+            it.CanBeLatest = updateLatest;
             it.Code = code;
-            it.Raw = text ?? "";
-            History.Add(it);
+            it.Channel = emailChannel ? "email" : "sms";
+            string historyText = text ?? "";
+            // 正文读取已限制为 20000 字符；额外保留主题，不再截成 1000 字符预览。
+            if (emailChannel && !identity.EmailSaveBody) historyText = "";
+            else if (emailChannel && historyText.Length > 24000) historyText = historyText.Substring(0, 24000) + "\n（内容过长，后续未保存）";
+            it.Raw = historyText;
+            if (!History.AddUnique(it)) return;
+            if (updateLatest) SetLatestRecord(it);
+            ApplyHistoryRetention();
+            if (History.IsExpired(it, cfg.HistoryRetentionMinutes, DateTime.UtcNow)) return;
+            Func<bool> canDeliver = delegate
+            {
+                lock (Config.SaveGate) return !History.IsExpired(it, cfg.HistoryRetentionMinutes, DateTime.UtcNow)
+                    && (canCommit == null || canCommit());
+            };
 
             if (mainWindow == null) return;
 
@@ -343,15 +526,145 @@ namespace Codepass
                     // 委托体在 UI 线程执行, 必须自行兜底异常
                     try
                     {
+                        lock (Config.SaveGate)
+                        {
+                        if (!canDeliver()) return;
                         mainWindow.OnNewRecord(it);
-                        // 剪贴板写入放后台 STA 线程重试（最长约 10 秒）：第三方程序
-                        // （游戏加速器、剪贴板工具等）短期占用时不至于复制失败，也不阻塞界面。
-                        StartClipboardWrite(code, text);
+                        if (autoCopy)
+                        {
+                            // 剪贴板写入放后台 STA 线程重试（最长约 10 秒）：第三方程序
+                            // （游戏加速器、剪贴板工具等）短期占用时不至于复制失败，也不阻塞界面。
+                            StartClipboardWrite(code, text, notify, canDeliver, emailChannel);
+                        }
+                        else if (notify && (emailChannel || cfg.ShowTip) && tray != null)
+                        {
+                            tray.ShowBalloonTip(2500, "验证码已收到", ChannelNotificationText(code, text, emailChannel),
+                                System.Windows.Forms.ToolTipIcon.Info);
+                        }
+                        }
                     }
                     catch (Exception e) { Log.Write("ui error: " + e.Message); }
                 }));
             }
             catch (Exception e) { Log.Write("invoke error: " + e.Message); }
+            }
+        }
+
+        // ---------- 邮箱接收 / QQ 弹窗联动 ----------
+
+        static Thread emailThread, emailJunkThread, qqPopupThread;
+        static string emailRuntimeSig = "";
+
+        internal static bool EmailConfigured()
+        {
+            return cfg.EmailEnabled
+                && cfg.EmailServer.Trim().Length > 0
+                && cfg.EmailAccount.Trim().Length > 0
+                && !cfg.EmailPasswordRequired && cfg.EmailAuth.Trim().Length > 0;
+        }
+
+        /// <summary>邮箱线程保存水位线用；与界面保存共用 Config 内部锁。</summary>
+        internal static void SaveConfigQuiet()
+        {
+            try { cfg.Save(Path.Combine(appDir, "config.ini")); }
+            catch (Exception e) { Log.Write("config save failed: " + e.Message); }
+        }
+
+        internal static void EmailStatusChanged()
+        {
+            if (mainWindow == null) return;
+            try { mainWindow.Dispatcher.BeginInvoke(new Action(delegate { mainWindow.UpdateEmailStatus(); })); } catch { }
+        }
+
+        /// <summary>
+        /// 设置变化后重设邮箱与弹窗监测线程；启用/停用/改配置都无需重启程序。
+        /// 旧线程靠“生成号”自查退出（RequestStop 递增），不在 UI 线程等待，避免界面卡顿。
+        /// </summary>
+        internal static void RefreshEmailWatchers()
+        {
+            string sig = EmailConfigured() ? EmailSignature(cfg) : "";
+            bool emailAlive = emailThread != null && emailThread.IsAlive;
+            bool foldersAlive = emailJunkThread != null && emailJunkThread.IsAlive;
+            if (sig != emailRuntimeSig || (sig.Length > 0 && (!emailAlive || !foldersAlive)))
+            {
+                EmailWatcher.RequestStop();
+                EmailWatcher.RequestStopJunk();
+                emailThread = null;
+                emailJunkThread = null;
+                emailRuntimeSig = sig;
+                if (sig.Length > 0)
+                {
+                    int gen = EmailWatcher.BeginMainGeneration();
+                    emailThread = StartWorker("email", delegate { EmailWatcher.MainLoop(gen); }, false);
+                    int junkGen = EmailWatcher.BeginJunkGeneration();
+                    emailJunkThread = StartWorker("email-folders", delegate { EmailWatcher.JunkLoop(junkGen); }, false);
+                }
+            }
+
+            EmailStatusChanged();
+            if (cfg.QqPopupEnabled)
+            {
+                if (qqPopupThread == null || !qqPopupThread.IsAlive)
+                {
+                    int gen = QqPopupWatcher.BeginGeneration();
+                    qqPopupThread = StartWorker("qq-popup", delegate { QqPopupWatcher.Loop(gen); }, true);
+                }
+            }
+            else
+            {
+                QqPopupWatcher.RequestStop();
+                qqPopupThread = null;
+            }
+        }
+
+        static Thread StartWorker(string name, ThreadStart body, bool sta)
+        {
+            return StartWorkerCore(name, body, sta);
+        }
+
+        internal static string EmailSignature(Config config)
+        {
+            return config.EmailServer + "\n" + config.EmailAccount + "\n" + config.EmailAuth
+                + "\n" + config.EmailCheckJunk + "\n" + config.EmailPollSeconds + "\n" + config.EmailKeywords + "\n" + config.EmailSenders
+                + "\n" + config.EmailAutoCopy + "\n" + config.EmailNotify + "\n" + config.EmailSaveBody
+                + "\n" + config.MinLen + "\n" + config.MaxLen;
+        }
+
+        static Thread StartWorkerCore(string name, ThreadStart body, bool sta)
+        {
+            Thread t = new Thread(body);
+            t.IsBackground = true;
+            t.Name = name;
+            if (sta)
+            {
+                try { t.SetApartmentState(ApartmentState.STA); } catch { }
+            }
+            t.Start();
+            return t;
+        }
+
+        /// <summary>退出前停止监测线程，避免恰逢保存配置时进程退出截断文件。</summary>
+        internal static void StopWatchersForExit()
+        {
+            EmailWatcher.RequestStop();
+            EmailWatcher.RequestStopJunk();
+            QqPopupWatcher.RequestStop();
+            try { if (emailThread != null && emailThread.IsAlive) emailThread.Join(1500); } catch { }
+            try { if (emailJunkThread != null && emailJunkThread.IsAlive) emailJunkThread.Join(1500); } catch { }
+            try
+            {
+                TcpListener listener;
+                lock (HttpGate) listener = httpListener;
+                if (listener != null) listener.Stop();
+                if (httpThread != null && httpThread.IsAlive && Thread.CurrentThread != httpThread) httpThread.Join(1500);
+            }
+            catch { }
+            try
+            {
+                Thread qq = qqPopupThread;
+                if (qq != null && qq.IsAlive && Thread.CurrentThread != qq) qq.Join(1500);
+            }
+            catch { }
         }
 
         static string Shorten(string s)
@@ -363,17 +676,23 @@ namespace Codepass
 
         static string NotificationText(string code, string raw)
         {
+            return ChannelNotificationText(code, raw, false);
+        }
+
+        internal static string ChannelNotificationText(string code, string raw, bool emailChannel)
+        {
             string body;
-            if (cfg.PrivacyMode == 2)
+            int mode = emailChannel ? cfg.EmailPrivacyMode : cfg.PrivacyMode;
+            if (mode == 2)
             {
                 body = Shorten(raw);
                 if (body.Length == 0) body = code;
             }
-            else if (cfg.PrivacyMode == 1)
+            else if (mode == 1)
             {
-                body = MaskCode(raw, code);
-                if (body.Length == 0) body = MaskCode(code, code);
-                body = Shorten(body);
+                // 在截断前掩码，避免通知末尾留下验证码的一部分。
+                body = Shorten(MaskCode(raw, code));
+                if (body.Length == 0) body = "收到一条新的验证码（内容已隐藏）";
             }
             else
             {
@@ -385,20 +704,28 @@ namespace Codepass
         static string MaskCode(string text, string code)
         {
             if (text == null || text.Length == 0) return "";
-            if (code == null || code.Length == 0) return text;
+            // JSON 支持转义验证码，原始表示未必包含已解码的完整验证码。
+            // 无法可靠定位时隐藏内容，而不是显示可能含部分验证码的原文。
+            if (string.IsNullOrEmpty(code) || CodeExtractor.JsonGetString(text, "code") != null
+                || text.IndexOf(code, StringComparison.Ordinal) < 0) return "";
             return text.Replace(code, new string('*', code.Length));
         }
 
         static void CopyLatestCode()
         {
-            string code = latestCode;
+            LatestReceipt receipt = GetLatestReceipt();
+            string code = receipt == null ? null : receipt.Code;
             if (String.IsNullOrEmpty(code))
             {
                 if (tray != null)
                     tray.ShowBalloonTip(1800, "codepass", "暂无可复制的验证码", System.Windows.Forms.ToolTipIcon.Info);
                 return;
             }
-            StartClipboardWrite(code, code);
+            StartClipboardWrite(code, code, true, delegate
+            {
+                lock (Config.SaveGate) return latestReceipt == receipt
+                    && (cfg.HistoryRetentionMinutes == 0 || receipt.ReceivedUtcTicks >= DateTime.UtcNow.AddMinutes(-cfg.HistoryRetentionMinutes).Ticks);
+            }, receipt.EmailChannel);
         }
 
         static bool IsHttpsEndpoint(string value)
@@ -409,7 +736,7 @@ namespace Codepass
                 && uri.UserInfo.Length == 0;
         }
 
-        static void ScheduleClear()
+        static void ScheduleClear(uint sequence, long request)
         {
             if (clearTimer != null) { clearTimer.Stop(); clearTimer = null; }
             if (cfg.AutoClearSeconds <= 0) return;
@@ -422,7 +749,14 @@ namespace Codepass
             {
                 t.Stop();
                 if (clearTimer == t) clearTimer = null;
-                try { System.Windows.Clipboard.Clear(); Log.Write("clipboard cleared"); } catch { }
+                lock (Config.SaveGate)
+                lock (ClipboardWriteGate)
+                {
+                    if (request != clipboardRequest || sequence == 0 || GetClipboardSequenceNumber() != sequence) return;
+                    if (!OpenClipboard(new System.Windows.Interop.WindowInteropHelper(mainWindow).Handle)) return;
+                    try { if (GetClipboardSequenceNumber() == sequence) EmptyClipboard(); }
+                    finally { CloseClipboard(); }
+                }
             };
             t.Start();
         }
@@ -434,6 +768,7 @@ namespace Codepass
         [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
         [DllImport("user32.dll", SetLastError = true)] static extern IntPtr GetClipboardData(uint uFormat);
         [DllImport("user32.dll", SetLastError = true)] static extern bool CloseClipboard();
+        [DllImport("user32.dll")] static extern uint GetClipboardSequenceNumber();
         [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
         [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GlobalLock(IntPtr hMem);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool GlobalUnlock(IntPtr hMem);
@@ -443,22 +778,43 @@ namespace Codepass
         const uint GMEM_MOVEABLE = 0x0002;
 
         /// <summary>
-        /// 写验证码到剪贴板：后台 STA 线程重试最长约 10 秒；每次失败后校验
-        /// 剪贴板内容是否已是目标验证码；最终结果回到 UI 线程弹通知。
-        /// 期间若有更新的验证码到来，旧线程直接退出，避免把旧验证码写回去。
+        /// 写验证码到剪贴板：后台 STA 重试最长约 10 秒，以请求号与提交锁串行写入。
+        /// 新请求或停止监测会使旧请求失效；清理仅作用于未被修改的本次写入。
         /// </summary>
-        static void StartClipboardWrite(string code, string text)
+        static void StartClipboardWrite(string code, string text, bool notify)
         {
-            pendingClipboardCode = code;
+            StartClipboardWrite(code, text, notify, null, false);
+        }
+
+        internal static bool CopyManually(string text, IntPtr owner)
+        {
+            lock (Config.SaveGate)
+            lock (ClipboardWriteGate)
+            {
+                ++clipboardRequest;
+                pendingClipboardCode = text;
+                if (clearTimer != null) { clearTimer.Stop(); clearTimer = null; }
+                uint sequence; string error;
+                return SetClipboardTextWin32(text, owner, out sequence, out error);
+            }
+        }
+
+        static void StartClipboardWrite(string code, string text, bool notify, Func<bool> canCommit, bool emailChannel)
+        {
+            long request;
+            lock (Config.SaveGate)
+            lock (ClipboardWriteGate) { request = ++clipboardRequest; pendingClipboardCode = code; }
+            IntPtr owner = mainWindow == null ? IntPtr.Zero : new System.Windows.Interop.WindowInteropHelper(mainWindow).Handle;
             Thread worker = new Thread(delegate()
             {
                 bool ok = false;
+                uint sequence = 0;
                 string lastError = null;
                 int tries = 0;
                 int deadline = unchecked(Environment.TickCount + 10000);
                 while (!ok)
                 {
-                    if (!string.Equals(pendingClipboardCode, code, StringComparison.Ordinal))
+                    if (request != Interlocked.Read(ref clipboardRequest) || (canCommit != null && !canCommit()))
                     {
                         Log.Write("clipboard: superseded, stop retry");
                         return;
@@ -467,7 +823,13 @@ namespace Codepass
                     string error = null;
                     try
                     {
-                        if (SetClipboardTextWin32(code, out error)) { ok = true; break; }
+                        lock (Config.SaveGate)
+                        lock (ClipboardWriteGate)
+                        {
+                            if (request != clipboardRequest || (canCommit != null && !canCommit())) return;
+                            if (SetClipboardTextWin32(code, owner, out sequence, out error)) ok = true;
+                        }
+                        if (ok) break;
                     }
                     catch (Exception ex)
                     {
@@ -475,8 +837,6 @@ namespace Codepass
                         error = ex.GetType().Name + ": " + ex.Message;
                     }
                     lastError = error;
-                    // 写入报错不代表一定没写进去：校验剪贴板内容是否已是目标验证码。
-                    if (ClipboardTextMatchesWin32(code)) { ok = true; break; }
                     int remaining = unchecked(deadline - Environment.TickCount);
                     if (remaining <= 0) break;
                     int delay = tries <= 2 ? 150 : (tries <= 10 ? 300 : 600);
@@ -489,7 +849,7 @@ namespace Codepass
                     + " (tries=" + tries + ", window=10s)");
 
                 // 期间已有更新的验证码：不再弹本次通知，避免旧提示干扰。
-                if (!string.Equals(pendingClipboardCode, code, StringComparison.Ordinal))
+                if (request != Interlocked.Read(ref clipboardRequest))
                 {
                     Log.Write("clipboard: superseded, skip notification");
                     return;
@@ -502,17 +862,22 @@ namespace Codepass
                     {
                         try
                         {
-                            if (cfg.ShowTip && tray != null)
+                            lock (Config.SaveGate)
+                            {
+                            if (request != Interlocked.Read(ref clipboardRequest)) return;
+                            CompleteClipboardClear(ok, sequence, request);
+                            if (canCommit != null && !canCommit()) return;
+                            if (notify && (emailChannel || cfg.ShowTip) && tray != null)
                             {
                                 if (ok)
-                                    tray.ShowBalloonTip(2500, "验证码已复制", NotificationText(code, text),
+                                    tray.ShowBalloonTip(2500, "验证码已复制", ChannelNotificationText(code, text, emailChannel),
                                         System.Windows.Forms.ToolTipIcon.Info);
                                 else
                                     tray.ShowBalloonTip(2500, "验证码已收到，复制失败",
                                         "未能写入剪贴板（可能被其他程序占用），请到记录页手动复制。",
                                         System.Windows.Forms.ToolTipIcon.Warning);
                             }
-                            if (ok && cfg.AutoClearSeconds > 0) ScheduleClear();
+                            }
                         }
                         catch (Exception e) { Log.Write("ui error: " + e.Message); }
                     }));
@@ -524,15 +889,25 @@ namespace Codepass
             worker.Start();
         }
 
+        internal static void CompleteClipboardClear(bool succeeded, uint sequence, long request)
+        {
+            lock (Config.SaveGate)
+            {
+                if (succeeded && request == Interlocked.Read(ref clipboardRequest) && cfg.AutoClearSeconds > 0)
+                    ScheduleClear(sequence, request);
+            }
+        }
+
         /// <summary>
         /// 用 Win32 直接写入 CF_UNICODETEXT：立即拷贝、不依赖延迟渲染。
         /// 先分配并填充内存再清空剪贴板：分配/加锁失败不会清空原内容；
         /// 写入环节失败会清空原内容，由上层重试补救。
         /// </summary>
-        static bool SetClipboardTextWin32(string text, out string error)
+        static bool SetClipboardTextWin32(string text, IntPtr owner, out uint sequence, out string error)
         {
             error = null;
-            if (!OpenClipboard(IntPtr.Zero))
+            sequence = 0;
+            if (owner == IntPtr.Zero || !OpenClipboard(owner))
             {
                 error = "OpenClipboard failed, win32=" + Marshal.GetLastWin32Error();
                 return false;
@@ -567,6 +942,7 @@ namespace Codepass
                     return false;
                 }
                 hMem = IntPtr.Zero;   // 所有权已交给系统
+                sequence = GetClipboardSequenceNumber();
                 return true;
             }
             finally
@@ -604,6 +980,7 @@ namespace Codepass
             Thread t = new Thread(HttpLoop);
             t.IsBackground = true;
             t.Name = "http";
+            httpThread = t;
             t.Start();
         }
 
@@ -615,6 +992,7 @@ namespace Codepass
             try
             {
                 listener = new TcpListener(listenAddress, cfg.Port);
+                lock (HttpGate) httpListener = listener;
                 listener.Start();
                 Log.Write("HTTP listening on " + listenAddress + ":" + cfg.Port
                     + " token=" + (cfg.Token.Length == 0 ? "off" : "on"));
@@ -638,6 +1016,7 @@ namespace Codepass
                 }
             }
             try { listener.Stop(); } catch { }
+            lock (HttpGate) { if (httpListener == listener) httpListener = null; }
         }
 
         // 没有令牌时只绑定回环，避免把未鉴权接口暴露到局域网。
