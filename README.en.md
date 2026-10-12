@@ -13,7 +13,7 @@ Android SMS or email code → Windows → clipboard
 [![Android](https://img.shields.io/badge/Android-6%2B-2f75f0)](#phone-options)
 [![License](https://img.shields.io/badge/License-MIT-2f75f0)](LICENSE)
 
-[Features](#features) · [Screenshots](#feature-screenshots) · [Downloads](#downloads) · [Quick Setup](#quick-setup) · [Settings](#settings) · [FAQ](#faq)
+[Features](#features) · [Screenshots](#feature-screenshots) · [Downloads](#downloads) · [Quick Setup](#quick-setup) · [Phone Options](#phone-options)
 
 [简体中文](README.md) · **English**
 
@@ -24,31 +24,30 @@ Android SMS or email code → Windows → clipboard
 
 ## Features
 
-| Capability | Description |
-| --- | --- |
-| 📱 SMS codes | Forward from Android over LAN, EasyTier or ntfy |
-| 📧 Email codes | QQ, 163, 126, Gmail, Outlook and custom IMAP; preserves read/unread status |
-| 📋 Auto copy | Paste codes as they arrive, with optional notifications and clipboard clearing |
-| 🕘 History | Search, SMS/email filters and original text; 10-minute cleanup by default, `0` disables |
-| 🔐 Privacy | Separate SMS/email notification modes, passcode lock and redacted diagnostics |
-| 🖥️ Tray | Silent startup with Windows; double-click to open, resizable window |
+- **📱 SMS codes** — Forward from Android over LAN, EasyTier or ntfy
+- **📧 Email codes** — QQ, 163, 126, Gmail, Outlook and custom IMAP; read status untouched
+- **📋 Auto copy** — Paste codes the moment they arrive; optional notifications and clipboard clearing
+- **🕘 History** — Search, filters and original text; 10-minute cleanup by default
+- **🔐 Privacy** — Notification levels, passcode lock and redacted diagnostics
+- **🔄 In-app updates** — Check and install new versions in one click
+- **🖥️ Tray resident** — Silent startup; copy, clear history and open settings from the tray
 
 ## Feature Screenshots
 
 <table>
   <tr>
-    <td width="50%" align="center"><b>Code history</b><br><img src="assets/v1.0.6/history-search.png" width="100%" alt="History search, SMS and email filters, automatic cleanup"></td>
-    <td width="50%" align="center"><b>Email settings</b><br><img src="assets/v1.0.4/email-status-narrow.png" width="100%" alt="Email connection and reception status"></td>
+    <td width="50%" align="center"><b>Code history</b><br><img src="assets/v1.0.7/history-search.png" width="100%" alt="History search, filters and latest code"></td>
+    <td width="50%" align="center"><b>Email settings</b><br><img src="assets/v1.0.7/email-settings.png" width="100%" alt="Email connection and reception rules"></td>
   </tr>
   <tr>
-    <td width="50%" align="center"><b>SMS settings</b><br><img src="assets/v1.0.4/sms-settings-narrow.png" width="100%" alt="SMS connection and silent startup"></td>
-    <td width="50%" align="center"><b>Privacy settings</b><br><img src="assets/v1.0.4/privacy-settings.png" width="100%" alt="SMS and email notification privacy, passcode lock"></td>
+    <td width="50%" align="center"><b>SMS settings</b><br><img src="assets/v1.0.7/sms-settings.png" width="100%" alt="SMS connection and PC reception"></td>
+    <td width="50%" align="center"><b>Privacy settings</b><br><img src="assets/v1.0.7/privacy-settings.png" width="100%" alt="Notification privacy and passcode lock"></td>
   </tr>
 </table>
 
 ## Downloads
 
-Current Windows version: **v1.0.7**. Phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
+Current Windows version: **v1.0.7**; phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
 
 | Asset | Purpose |
 | --- | --- |
@@ -57,7 +56,21 @@ Current Windows version: **v1.0.7**. Phone modules remain at v1.0.3. [Download t
 | `codepass-lsposed-release.apk` | LSPosed phone module |
 | `SHA256SUMS.txt` | Asset checksums |
 
-Upgrade Windows by quitting from the tray and replacing `codepass.exe`. Set history cleanup to `0` for long-term retention.
+Upgrade by quitting from the tray and replacing `codepass.exe`; configuration and history are preserved. v1.0.7 and later can also update in-app from the About page.
+
+## Quick Setup
+
+### SMS
+
+1. Open SMS settings, enter a random access token and the PC IPv4 address, then restart.
+2. Point the phone forwarder at `http://PC-IPv4:8787/sms` with the token in the `X-Token` header (see [Phone Options](#phone-options) for each method).
+3. Click Test connectivity and send a test SMS for end-to-end verification.
+
+### Email
+
+Open Email settings, select a provider, enter the account and IMAP authorization code, test the connection, enable reception and click Save connection. Gmail setup is in [Gmail app passwords](docs/GMAIL_APP_PASSWORD.md).
+
+Closing the window hides it to the tray; quit from the tray menu.
 
 ## Phone Options
 
@@ -68,64 +81,18 @@ Upgrade Windows by quitting from the tray and replacing `codepass.exe`. Set hist
 | Rooted | [Root script](phone/README.md) |
 | LSPosed | [LSPosed module](phone/lsposed/README.md) |
 
-Use one SMS forwarding option. Email reception is configured directly on Windows and needs no phone app.
-
-## Quick Setup
-
-### SMS
-
-1. Open SMS settings, enter a random access token and the PC IPv4 address, then restart.
-2. Webhook URL: `http://PC-IPv4:8787/sms`; send the token in the `X-Token` header.
-3. Click Test connectivity and send a test SMS.
-
-### Email
-
-Open Email settings, select a provider, enter the account and IMAP authorization code/app password, test the connection, enable reception and click Save connection. Testing does not save or enable a draft; changed inputs invalidate previous results. Gmail setup is in [Gmail app passwords](docs/GMAIL_APP_PASSWORD.md).
-
-Closing the window hides it to the tray; quit from the tray menu.
-
-## Settings
-
-| Page | Main options |
-| --- | --- |
-| History | Search and filters, click-to-copy, original text, automatic cleanup |
-| SMS settings | Address/port/token, silent startup, code length, filters, ntfy, clipboard clearing |
-| Email settings | Connection status, subject/sender rules, recheck, junk folders, body retention, QQ integration |
-| Privacy settings | SMS/email notification content, passcode lock, auto-lock |
-| About | Update check, preview and export redacted diagnostics |
-
-Ordinary settings save by section; invalid drafts remain editable. Email credentials use the explicit Save connection action. Restart after changing network listening or ntfy; saved email settings apply immediately. History cleanup never deletes mailbox messages. Disabling timed cleanup still keeps at most 100 records; retention is not the code's expiry time.
-
-History includes a latest-code card, receiver status and keyboard-accessible Copy/Original actions. Use Ctrl+F to search and Tab/Enter to operate. The tray can pause automatic copying for 15 minutes while continuing to receive. Send a test message from the phone after checking connectivity to verify the complete route.
-
-ntfy reconnects request up to ten minutes of cached messages when available. The updated root script uses stable SMS IDs across transports; legacy plain-text clients use a two-minute identical-body deduplication window.
-
-## Development
-
-See the [Windows code map](https://github.com/Murciee/codepass/blob/main/docs/ARCHITECTURE.md) for the code structure, build boundaries and maintenance entry points.
-
-## FAQ
-
-- **Can't reach the PC**: check the IPv4 address, port, token and Windows Firewall.
-- **Can't copy**: check whether another clipboard tool is holding the clipboard.
-- **Missing email codes**: check connection status and filter rules, then recheck the last 30 minutes if needed.
-- **Can't find a code**: select All in History and search the service, sender or code.
-- **Need troubleshooting help**: use About → Preview redacted diagnostics; do not share a full config or log.
+Use one SMS forwarding method. Email reception is configured directly on Windows and needs no phone app.
 
 ## Security and Privacy
 
 - Use a random LAN token and never expose the port to the internet.
 - Use HTTPS for ntfy; a public topic is not reliable access control.
 - Protect configuration, logs and notifications; never publish real codes, messages or tokens.
-- The passcode lock protects the UI; notification masking does not change clipboard content.
+- History is encrypted for the current Windows user; notification masking does not change clipboard content.
 
-## User Guides
+## Development
 
-- [No-root Webhook](phone/no-root.md)
-- [Magisk](phone/magisk/README.md)
-- [LSPosed](phone/lsposed/README.md)
-- [Root / script](phone/README.md)
-- [ntfy](phone/ntfy.md)
+See the [Windows code map](https://github.com/Murciee/codepass/blob/main/docs/ARCHITECTURE.md) for code structure, build boundaries and maintenance entry points.
 
 ## License
 
