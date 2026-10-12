@@ -90,11 +90,11 @@ namespace Codepass
          Window historyRawWindow, diagnosticsWindow;
          bool wasMinimized;
 
-        static readonly Brush FgBody   = MakeBrush(0x1C, 0x1C, 0x1C);
-        static readonly Brush AccentTx = MakeBrush(0x00, 0x78, 0xD4);
-        static readonly Brush FgFaint  = MakeBrush(0x61, 0x61, 0x61);
-        static readonly Brush RowHover = MakeBrush(0xF5, 0xF5, 0xF5);
-        static readonly Brush RowSel   = MakeBrush(0xE9, 0xE9, 0xE9);
+        static readonly Brush FgBody   = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : MakeBrush(0x1C, 0x1C, 0x1C);
+        static readonly Brush AccentTx = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : MakeBrush(0x00, 0x78, 0xD4);
+        static readonly Brush FgFaint  = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : MakeBrush(0x61, 0x61, 0x61);
+        static readonly Brush RowHover = SystemParameters.HighContrast ? SystemColors.ControlBrush : MakeBrush(0xF5, 0xF5, 0xF5);
+        static readonly Brush RowSel   = SystemParameters.HighContrast ? SystemColors.ControlBrush : MakeBrush(0xE9, 0xE9, 0xE9);
 
         static Brush MakeBrush(byte r, byte g, byte b)
         {
@@ -117,8 +117,8 @@ namespace Codepass
              AllowsTransparency = true;
                 ResizeMode = ResizeMode.CanResize;
              Background = Brushes.Transparent;
-              MinWidth = 780;
-             MinHeight = 560;
+              MinWidth = Math.Min(640, Math.Max(360, SystemParameters.WorkArea.Width - 24));
+             MinHeight = Math.Min(460, Math.Max(300, SystemParameters.WorkArea.Height - 24));
              ApplyConfiguredWindowSize();
              WindowChrome chrome = new WindowChrome();
              chrome.CaptionHeight = 0;
@@ -164,7 +164,7 @@ namespace Codepass
                  if (ico != null) ico.Dispose();
              }
 
-             Grid root = (Grid)XamlReader.Parse(UiXaml);
+             Grid root = (Grid)XamlReader.Parse(UiAppearance.Prepare(UiXaml, SystemParameters.HighContrast, SystemParameters.ClientAreaAnimation));
              Content = root;
              Image appLogo = Find<Image>(root, "imgAppLogo");
              if (appLogo != null && iconSource != null) appLogo.Source = iconSource;
@@ -259,6 +259,7 @@ namespace Codepass
               lblStorageError = Find<TextBlock>(root, "lblStorageError");
               lblQqStatus = Find<TextBlock>(root, "lblQqStatus");
               BuildSecretFields(root);
+              InitializeUsability(root);
               InitializeResponsiveForms(pageSet);
               settingsScroll.SizeChanged += delegate { UpdateResponsiveForms(); };
               Loaded += delegate { UpdateResponsiveForms(); };
@@ -297,7 +298,7 @@ namespace Codepass
                Wire(root, "tabEmailHistory", delegate { SelectHistoryChannel("email"); });
                Wire(root, "tabAllHistory", delegate { SelectHistoryChannel("all"); });
                Wire(root, "btnHistoryReset", delegate { txtHistorySearch.Clear(); SelectHistoryChannel("all"); });
-               txtHistorySearch.TextChanged += delegate { RefreshHistory(); if (historyScroll != null) historyScroll.ScrollToTop(); };
+               txtHistorySearch.TextChanged += delegate { ScheduleHistoryRefresh(true); };
                txtHistorySearch.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
                { if (e.Key == Key.Escape) { txtHistorySearch.Clear(); e.Handled = true; } };
                Wire(root, "btnDiagnostics", delegate { ShowDiagnostics(); });
@@ -305,19 +306,19 @@ namespace Codepass
                 Wire(root, "btnEmailKeywordDefault", delegate
                 {
                     if (MessageBox.Show(this, "恢复默认主题关键词？", "确认", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-                    txtEmailKeywords.Text = new Config().EmailKeywords; ApplySettings();
+                   txtEmailKeywords.Text = new Config().EmailKeywords; QueueSection(SettingsSection.EmailRules);
                 });
                  Wire(root, "btnEmailTest", delegate { TestEmailConnection(); });
                  Wire(root, "btnStorageRetry", delegate
                  {
-                     if (!ApplySettings()) return;
+                     if (!ApplySection(SettingsSection.EmailRules)) return;
                      try { cfg.Save(cfgPath); History.RetrySave(); EmailWatcher.Kick(); ShowToast("已重试保存并请求邮件检查"); }
                      catch { ShowToast("保存仍未完成，请检查文件权限与磁盘空间"); }
                      UpdateEmailStatus();
                  });
                 Wire(root, "btnEmailRecheck", delegate
                 {
-                    if (!ApplySettings()) return;
+                     if (!ApplySection(SettingsSection.EmailRules)) return;
                     if (!Program.EmailConfigured()) { ShowToast("请先填写邮箱凭据并开启邮箱接收"); return; }
                     EmailWatcher.RequestRecentCheck();
                     ShowToast("已请求复查近 30 分钟邮件，最多 200 封候选邮件");
@@ -357,9 +358,9 @@ namespace Codepass
               LoadValues();
               RefreshHistory();
               WireAutoApply(root);
-              txtHistoryRetention.LostFocus += delegate { SaveHistoryRetention(); };
+               txtHistoryRetention.LostFocus += delegate { QueueSection(SettingsSection.Retention); };
               txtHistoryRetention.KeyDown += delegate(object sender, KeyEventArgs e)
-              { if (e.Key == Key.Return) { SaveHistoryRetention(); e.Handled = true; } };
+               { if (e.Key == Key.Return) { QueueSection(SettingsSection.Retention); e.Handled = true; } };
                WireMultilineScrolling();
               SelectSection("history");
              if (cfg.LockOnOpen) LockWindow();
@@ -379,34 +380,34 @@ namespace Codepass
             foreach (TextBox tb in boxes)
             {
                 if (tb == null) continue;
-                tb.LostFocus += delegate { ApplySettings(); };
+                if (tb == txtEmailServer || tb == txtEmailAccount) continue;
+                tb.LostFocus += delegate(object sender, RoutedEventArgs e) { QueueSection(SectionFor((FrameworkElement)sender)); };
                  tb.KeyDown += delegate(object s, KeyEventArgs e)
                  {
                      // 多行过滤/邮箱输入框用回车换行，失焦时自动保存；其他输入框回车立即保存。
                      if (e.Key == Key.Return
                          && s != txtFilterKeywords && s != txtFilterRegex
-                         && s != txtEmailKeywords && s != txtEmailSenders) ApplySettings();
+                          && s != txtEmailKeywords && s != txtEmailSenders) QueueSection(SectionFor((FrameworkElement)s));
                  };
             }
-            if (chkTip != null) chkTip.Click += delegate { ApplySettings(); };
-            if (chkStartup != null) chkStartup.Click += delegate { ApplySettings(); };
-            if (chkAutoLock != null) chkAutoLock.Click += delegate { ApplySettings(); };
-              if (cmbPrivacy != null) cmbPrivacy.SelectionChanged += delegate { ApplySettings(); };
-              if (cmbEmailPrivacy != null) cmbEmailPrivacy.SelectionChanged += delegate { ApplySettings(); };
-              if (fldToken != null) fldToken.Committed += delegate { ApplySettings(); };
-              if (fldNtfyToken != null) fldNtfyToken.Committed += delegate { ApplySettings(); };
-              if (fldEmailAuth != null) fldEmailAuth.Committed += delegate { ApplySettings(); };
-              if (chkEmail != null) chkEmail.Click += delegate { ApplySettings(); };
-              if (chkEmailJunk != null) chkEmailJunk.Click += delegate { ApplySettings(); };
-              if (chkEmailNotify != null) chkEmailNotify.Click += delegate { ApplySettings(); };
-               if (chkEmailAutoCopy != null) chkEmailAutoCopy.Click += delegate { ApplySettings(); };
-               if (chkEmailSaveBody != null) chkEmailSaveBody.Click += delegate { ApplySettings(); };
-              if (chkQqPopup != null) chkQqPopup.Click += delegate { ApplySettings(); };
+             if (chkTip != null) chkTip.Click += delegate { QueueSection(SettingsSection.SmsRules); };
+             if (chkStartup != null) chkStartup.Click += delegate { QueueSection(SettingsSection.Sms); };
+             if (chkAutoLock != null) chkAutoLock.Click += delegate { QueueSection(SettingsSection.Privacy); };
+               if (cmbPrivacy != null) cmbPrivacy.SelectionChanged += delegate { QueueSection(SettingsSection.Privacy); };
+               if (cmbEmailPrivacy != null) cmbEmailPrivacy.SelectionChanged += delegate { QueueSection(SettingsSection.Privacy); };
+               if (fldToken != null) fldToken.Committed += delegate { QueueSection(SettingsSection.Sms); };
+               if (fldNtfyToken != null) fldNtfyToken.Committed += delegate { QueueSection(SettingsSection.Ntfy); };
+               if (chkEmail != null) chkEmail.Click += delegate { InvalidateEmailTest(); SettingsFeedback("邮箱连接草稿已修改 · 点击保存连接生效", false); };
+               if (chkEmailJunk != null) chkEmailJunk.Click += delegate { QueueSection(SettingsSection.EmailRules); };
+               if (chkEmailNotify != null) chkEmailNotify.Click += delegate { QueueSection(SettingsSection.EmailRules); };
+               if (chkEmailAutoCopy != null) chkEmailAutoCopy.Click += delegate { QueueSection(SettingsSection.EmailRules); };
+                if (chkEmailSaveBody != null) chkEmailSaveBody.Click += delegate { QueueSection(SettingsSection.EmailRules); };
+               if (chkQqPopup != null) chkQqPopup.Click += delegate { QueueSection(SettingsSection.EmailRules); };
               if (cmbEmailProvider != null) cmbEmailProvider.SelectionChanged += delegate
               {
                   if (loadingValues) return;
-                  ApplyEmailProviderPreset();
-                  ApplySettings();
+                   ApplyEmailProviderPreset();
+                   SettingsFeedback("邮箱连接草稿已修改 · 测试后点击保存连接", false);
               };
               if (txtPcIp != null) txtPcIp.TextChanged += delegate { if (!loadingValues) autoPcIp = ""; };
                if (txtEmailServer != null) txtEmailServer.TextChanged += delegate { UpdateEmailAuthHint(); };
@@ -472,16 +473,22 @@ namespace Codepass
         void InitializeResponsiveForms(DependencyObject node)
         {
             Grid grid = node as Grid;
-            if (grid != null && grid.ColumnDefinitions.Count == 2
-                && grid.ColumnDefinitions[0].Width.IsAbsolute && grid.ColumnDefinitions[1].Width.IsStar)
-            {
-                ResponsiveForm form = new ResponsiveForm { Grid = grid, LabelWidth = grid.ColumnDefinitions[0].Width };
-                foreach (RowDefinition row in grid.RowDefinitions) form.Rows.Add(row.Height);
+             if (grid != null && grid.ColumnDefinitions.Count == 2
+                 && grid.ColumnDefinitions[0].Width.IsAbsolute && grid.ColumnDefinitions[1].Width.IsStar)
+             {
+                grid.ColumnDefinitions[0].Width = new GridLength(150);
+                ResponsiveForm form = new ResponsiveForm { Grid = grid, LabelWidth = new GridLength(150) };
+                if (grid.RowDefinitions.Count == 0) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                foreach (RowDefinition row in grid.RowDefinitions) { row.Height = GridLength.Auto; form.Rows.Add(GridLength.Auto); }
                 foreach (UIElement child in grid.Children)
                 {
                     FrameworkElement element = child as FrameworkElement;
-                    if (element != null) form.Cells.Add(new FormCell { Element = element, Row = Grid.GetRow(element),
-                        Column = Grid.GetColumn(element), Margin = element.Margin });
+                    if (element != null)
+                    {
+                        element.VerticalAlignment = VerticalAlignment.Top;
+                        element.Margin = Grid.GetColumn(element) == 0 ? new Thickness(0, 14, 14, 0) : new Thickness(0, 6, 0, 8);
+                        form.Cells.Add(new FormCell { Element = element, Row = Grid.GetRow(element), Column = Grid.GetColumn(element), Margin = element.Margin });
+                    }
                 }
                 responsiveForms.Add(form);
             }
@@ -492,7 +499,8 @@ namespace Codepass
         void UpdateResponsiveForms()
         {
             if (settingsScroll == null || settingsScroll.ActualWidth <= 0) return;
-            bool compact = settingsScroll.ActualWidth < 850;
+             bool compact = settingsScroll.ActualWidth < 850;
+             UpdateSettingsFieldWidth(compact);
             foreach (ResponsiveForm form in responsiveForms)
             {
                 if (form.Compact == compact) continue;
@@ -534,11 +542,14 @@ namespace Codepass
 
           protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
           {
-               if (emailTestCancel != null) emailTestCancel.Cancel();
+                 CancelConnectionTests();
+                FlushSettings();
                // 保存失败会还原输入并提示；不能因此阻止关闭/托盘退出或系统关机。
                if (!SaveHistoryRetention()) Log.Write("closing with history retention setting not saved");
-               if (!ApplySettings()) Log.Write("closing with settings not saved; previous configuration retained");
-              SaveWindowSize();
+                foreach (SettingsSection section in new SettingsSection[] { SettingsSection.Sms, SettingsSection.SmsRules, SettingsSection.Ntfy, SettingsSection.EmailRules, SettingsSection.Privacy })
+                    if (!ApplySection(section)) Log.Write("closing with settings not saved; previous configuration retained");
+               SaveWindowSize();
+               FlushSettings();
               if (!allowClose)
              {
                  e.Cancel = true;
@@ -583,15 +594,14 @@ namespace Codepass
               int width = (int)Math.Round(Width);
               int height = (int)Math.Round(Height);
               if (width == cfg.WindowWidth && height == cfg.WindowHeight) return;
-              cfg.WindowWidth = width;
-              cfg.WindowHeight = height;
-              try { cfg.Save(cfgPath); }
-              catch (Exception ex) { Log.Write("window size save failed: " + ex.GetType().Name); }
+              QueueDraft(SettingsSection.Window, new Config { WindowWidth = width, WindowHeight = height });
           }
 
           protected override void OnClosed(EventArgs e)
           {
               closeCompleted = true;
+              if (historyRefreshTimer != null) historyRefreshTimer.Stop();
+              if (windowSizeTimer != null) windowSizeTimer.Stop();
               base.OnClosed(e);
           }
       }

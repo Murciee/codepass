@@ -65,6 +65,8 @@ public static class HistoryClickProbe {
 $asm=[Reflection.Assembly]::LoadFile([IO.Path]::GetFullPath($ExePath))
 $flags=[Reflection.BindingFlags]'Public,NonPublic,Instance,Static'
 $configType=$asm.GetType('Codepass.Config'); $programType=$asm.GetType('Codepass.Program')
+$delivery=$programType.GetField('Incoming',$flags).GetValue($null)
+$receipts=$asm.GetType('Codepass.History').GetField('Receipts',$flags).GetValue($null)
 $watcher=$asm.GetType('Codepass.EmailWatcher'); $imapType=$asm.GetType('Codepass.Imap')
 $mime=$asm.GetType('Codepass.Mime'); $extractor=$asm.GetType('Codepass.CodeExtractor')
 $windowType=$asm.GetType('Codepass.MainWindow'); $history=$asm.GetType('Codepass.History')
@@ -172,7 +174,7 @@ $pair=Replay ("* SEARCH 26`r`nC1 OK search`r`n"+(MailWire 2 26 'recheck-syntheti
 Assert 'recheck:previously-skipped-mail-added' ((Call $history 'Snapshot' $null @()).Count -eq 2)
 Assert 'recheck:latest-code-unchanged' ((Call $programType 'GetLatestReceipt' $null @()).Code -eq $latestBeforeRecheck)
 Assert 'recheck:water-unchanged' ($cfg.EmailMailboxState -eq $originalState)
-Assert 'recheck:no-unacknowledged-receipt-added' ($history.GetField('PendingReceipts',$flags).GetValue($null).Count -eq 0)
+Assert 'recheck:no-unacknowledged-receipt-added' ($receipts.GetType().GetField('PendingReceipts',$flags).GetValue($receipts).Count -eq 0)
 $pair=Replay ("* SEARCH 26`r`nC1 OK search`r`n"+(MailWire 2 26 'recheck-synthetic@example.com' $now))
 [void](Call $watcher 'ProcessRecent' $null @($pair[0],$gen,$false,$cfg,$mailbox))
 Assert 'recheck:duplicate-idempotent' ((Call $history 'Snapshot' $null @()).Count -eq 2)
@@ -311,7 +313,7 @@ for($index=1;$index -le 205;$index++) {
     [void](Call $history 'AddUnique' $null @($record))
 }
 Assert 'dedup:visible-history-still-100' ((Call $history 'Snapshot' $null @()).Count -eq 100)
-Assert 'dedup:recent-independent-205' ($history.GetField('RecentMessages',$flags).GetValue($null).Count -eq 205)
+Assert 'dedup:recent-independent-205' ($receipts.GetType().GetField('RecentMessages',$flags).GetValue($receipts).Count -eq 205)
 [void](Call $history 'Init' $null @($dedupPath))
 $duplicate=[Activator]::CreateInstance($itemType,$true); $duplicate.Channel='email'; $duplicate.MessageKey='recent-1'; $duplicate.Code='654321'
 Assert 'dedup:evicted-visible-mail-not-readded-after-restart' (-not (Call $history 'AddUnique' $null @($duplicate)))
@@ -326,7 +328,7 @@ $latestPath=Join-Path $root 'latest-code.txt'
 $freshRecord=[Activator]::CreateInstance($itemType,$true); $freshRecord.Channel='sms'; $freshRecord.Code='112233'
 [void](Call $history 'AddUnique' $null @($freshRecord))
 $cfg.EmailEnabled=$true
-[void](Call $programType 'SubmitEmail' $null @('synthetic old mail','noreply@example.com','654321','latest-recheck-fixture',$cfg,$false,[Func[bool]]{return $true},$null,[long]0,$false))
+[void](Call $delivery.GetType() 'SubmitEmail' $delivery @('synthetic old mail','noreply@example.com','654321','latest-recheck-fixture',$cfg,$false,[Func[bool]]{return $true},$null,[long]0,$false))
 Assert 'latest:recheck-flag-stored' (-not (Call $history 'Snapshot' $null @())[0].CanBeLatest)
 [void](Call $history 'Init' $null @($latestPath))
 Assert 'latest:restart-skips-older-recheck-code' ((Call $history 'LatestCode' $null @()) -eq '112233')
@@ -450,6 +452,10 @@ $rowHost.Padding=New-Object Windows.Thickness(10)
 $rowHost.Child=$row
 SaveVisual $rowHost 920 64 'history-sender-centered.png'
 $senderCell=$row.Child.Children[1]; $rawCell=$row.Child.Children[3]
+Assert 'ui:tooltip-content-lazy' ($rawCell.ToolTip -is [string])
+[void](Call $windowType 'EnsureRawTooltip' $null @($rawCell,$items[0]))
+Assert 'ui:copy-is-keyboard-button' ($row.Child.Children[2] -is [Windows.Controls.Button] -and $row.Child.Children[2].Focusable)
+Assert 'ui:raw-action-is-button' ($row.Child.Children[4] -is [Windows.Controls.Button] -and $row.Child.Children[4].Focusable)
 Assert 'ui:sender-centered' ($senderCell.TextAlignment.ToString() -eq 'Center')
 Assert 'ui:raw-remains-left' ($rawCell.TextAlignment.ToString() -eq 'Left')
 Assert 'ui:tooltip-wraps-full-original' ($rawCell.ToolTip.Content.Content.Text -eq $items[0].Raw -and $rawCell.ToolTip.Content.Content.TextWrapping.ToString() -eq 'Wrap')

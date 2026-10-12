@@ -84,12 +84,15 @@ namespace Codepass
         {
             tcp = new TcpClient();
             IAsyncResult ar = tcp.BeginConnect(host, port, null, null);
-            if (!ar.AsyncWaitHandle.WaitOne(timeoutMs))
+            using (WaitHandle connected = ar.AsyncWaitHandle)
             {
-                try { tcp.Close(); } catch { }
-                throw new IOException("连接 " + host + " 超时");
+                if (!connected.WaitOne(timeoutMs))
+                {
+                    try { tcp.Close(); } catch { }
+                    throw new IOException("连接邮箱超时");
+                }
+                tcp.EndConnect(ar);
             }
-            tcp.EndConnect(ar);
             SslStream ssl = new SslStream(tcp.GetStream(), false);
             ssl.ReadTimeout = timeoutMs;
             ssl.WriteTimeout = timeoutMs;

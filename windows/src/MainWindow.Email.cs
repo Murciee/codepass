@@ -68,8 +68,10 @@ namespace Codepass
                      : provider >= 0 && provider <= 2
                      ? "QQ / 163 / 126 邮箱：先在网页版邮箱设置中开启 IMAP 服务，再生成授权码。"
                       : "请使用服务商允许的 IMAP 授权码或应用专用密码。";
-             if (btnEmailAuthHelp != null)
-                 btnEmailAuthHelp.Visibility = gmail ? Visibility.Visible : Visibility.Collapsed;
+              if (btnEmailAuthHelp != null)
+                  btnEmailAuthHelp.Visibility = gmail ? Visibility.Visible : Visibility.Collapsed;
+              Button guide = Find<Button>((FrameworkElement)Content, "btnEmailGuide");
+              if (guide != null) guide.Visibility = gmail ? Visibility.Visible : Visibility.Collapsed;
          }
 
          static List<string> EmailKeywordList(string text)
@@ -106,7 +108,7 @@ namespace Codepass
                      List<string> words = EmailKeywordList(txtEmailKeywords.Text);
                      words.Remove(value);
                      txtEmailKeywords.Text = string.Join("\n", words.ToArray());
-                     ApplySettings();
+                     QueueSection(SettingsSection.EmailRules);
                  };
                  content.Children.Add(remove); chip.Child = content; emailKeywordTags.Children.Add(chip);
              }
@@ -120,7 +122,7 @@ namespace Codepass
              if (!MailRules.NormalizeLines(text, out normalized, out error)) { ShowToast("主题关键词无效：" + error); return; }
              txtEmailKeywords.Text = normalized;
              txtEmailKeywordAdd.Clear();
-             ApplySettings();
+             QueueSection(SettingsSection.EmailRules);
          }
 
          void UpdateEmailPreview()
@@ -154,28 +156,37 @@ namespace Codepass
              if (banner != null) banner.Visibility = storage.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
              if (lblQqStatus != null) lblQqStatus.Text = !Program.EmailConfigured() ? "请先配置并启用邮箱；当前不会触发检查"
                  : !cfg.QqPopupEnabled ? "联动已关闭" : "监测中 · 最近提醒 " + QqPopupWatcher.LastSignalText;
-             if (chkQqPopup != null) chkQqPopup.IsEnabled = Program.EmailConfigured();
+              if (chkQqPopup != null) chkQqPopup.IsEnabled = Program.EmailConfigured();
+              lblEmailStatus.Foreground = !cfg.EmailEnabled ? FgFaint : Program.EmailConfigured() && EmailWatcher.Status.StartsWith("已连接") ? Brushes.DarkGreen : AccentTx;
+              UpdateReceiveSummary();
          }
 
          void TestEmailConnection()
          {
-             if (emailTestCancel != null) { emailTestCancel.Cancel(); return; }
-             if (!ApplySettings()) return;
-             Config identity = new Config(); identity.CopyFrom(cfg);
+              if (emailTestCancel != null) { emailDraftVersion++; emailTestCancel.Cancel(); lblEmailTestResult.Text = "连接测试已取消"; return; }
+             Config identity;
+             if (!ReadDraft(SettingsSection.Email, out identity)) return;
              if (identity.EmailAccount.Length == 0 || identity.EmailServer.Length == 0
                  || identity.EmailPasswordRequired || identity.EmailAuth.Length == 0)
              { ShowToast("请先填写完整邮箱和 IMAP 授权码 / 应用专用密码"); return; }
-             CancellationTokenSource cancel = new CancellationTokenSource(); emailTestCancel = cancel;
+              CancellationTokenSource cancel = new CancellationTokenSource(); emailTestCancel = cancel;
+              int version = emailDraftVersion;
              btnEmailTest.Content = "取消测试"; lblEmailTestResult.Text = "正在测试认证与只读收件箱连接…";
              Thread worker = new Thread(delegate()
              {
-                 string result;
-                 try { result = EmailWatcher.TestConnection(identity, cancel.Token); }
-                 catch (OperationCanceledException) { result = "连接测试已取消"; }
-                 catch { result = cancel.IsCancellationRequested ? "连接测试已取消" : "连接测试失败，请检查网络、服务设置与授权"; }
+                 OperationResult result;
+                 try { result = new OperationResult(OperationState.Success, EmailWatcher.TestConnection(identity, cancel.Token)); }
+                 catch (OperationCanceledException) { result = new OperationResult(OperationState.Cancelled, "连接测试已取消"); }
+                 catch { result = new OperationResult(cancel.IsCancellationRequested ? OperationState.Cancelled : OperationState.Failed,
+                     cancel.IsCancellationRequested ? "连接测试已取消" : "连接测试失败，请检查网络、服务设置与授权"); }
                  try { Dispatcher.BeginInvoke(new Action(delegate
                  {
-                     emailTestCancel = null; cancel.Dispose(); btnEmailTest.Content = "测试邮箱连接"; lblEmailTestResult.Text = result;
+                      if (emailTestCancel == cancel) emailTestCancel = null;
+                      if (cancel.IsCancellationRequested) result = new OperationResult(OperationState.Cancelled, "连接测试已取消");
+                     cancel.Dispose(); btnEmailTest.Content = "测试邮箱连接";
+                     if (!CanShowTestResult(version, emailDraftVersion)) return;
+                     lblEmailTestResult.Text = result.Message + (result.State == OperationState.Success ? " · 此次测试未保存；可点击保存连接" : "");
+                     lblEmailTestResult.Foreground = result.State == OperationState.Failed ? Brushes.Firebrick : FgFaint;
                  })); } catch { cancel.Dispose(); }
              });
              worker.IsBackground = true; worker.Name = "email-test"; worker.Start();

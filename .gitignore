@@ -30,6 +30,9 @@ android-env/*
 **/config.ini.new
 **/history.txt
 **/history.txt.new
+**/ntfy-state.txt
+**/ntfy-state.txt.new
+**/outbox.queue
 **/config.conf
 **/lsposed.conf
 **/screenshots/

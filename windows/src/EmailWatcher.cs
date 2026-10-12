@@ -32,6 +32,7 @@ namespace Codepass
         static readonly ManualResetEventSlim wake = new ManualResetEventSlim(false);
         static readonly ManualResetEventSlim junkWake = new ManualResetEventSlim(false);
         static int failures;
+        static int folderFailures;
         static DateTime lastStaleLogAt = DateTime.MinValue;
         internal static string Status = "尚未连接";
         internal static DateTime LastCheckUtc = DateTime.MinValue;
@@ -217,7 +218,7 @@ namespace Codepass
 
         public static void JunkLoop(int gen)
         {
-            int folderFailures = 0;
+            folderFailures = 0;
             Log.Write("email folders watcher started");
             while (GenAlive(gen, true) && Program.Running)
             {
@@ -228,7 +229,7 @@ namespace Codepass
                 }
                 try
                 {
-                    JunkCheckOnce(gen);
+                    RunFolderSession(gen);
                     folderFailures = 0;
                 }
                 catch (Exception ex)
@@ -433,7 +434,51 @@ namespace Codepass
             try
             {
                 ConnectAndLogin(imap, cfg, gen, true);
-                List<ImapFolder> folders = ReceiveFolders(imap.ListFolderDetails(), cfg.EmailCheckJunk);
+                CheckReceiveFolders(imap, gen, cfg, ReceiveFolders(imap.ListFolderDetails(), cfg.EmailCheckJunk));
+            }
+            finally
+            {
+                lock (ConnGate) { if (activeJunkConn == imap) activeJunkConn = null; }
+                imap.Close();
+            }
+        }
+
+        static void RunFolderSession(int gen)
+        {
+            Config cfg = SnapshotConfig();
+            Imap imap = new Imap();
+            lock (Config.SaveGate)
+            lock (ConnGate)
+            {
+                if (!CanCommit(gen, true, cfg)) return;
+                activeJunkConn = imap;
+            }
+            try
+            {
+                ConnectAndLogin(imap, cfg, gen, true);
+                List<ImapFolder> folders = null;
+                DateTime discovered = DateTime.MinValue;
+                while (CanCommit(gen, true, cfg))
+                {
+                    if (folders == null || DateTime.UtcNow - discovered > TimeSpan.FromMinutes(5)
+                        || PendingRecentRequest(cfg, true) != 0)
+                    { folders = ReceiveFolders(imap.ListFolderDetails(), cfg.EmailCheckJunk); discovered = DateTime.UtcNow; }
+                    else imap.Noop();
+                    CheckReceiveFolders(imap, gen, cfg, folders);
+                    folderFailures = 0;
+                    int seconds = Math.Max(10, Math.Min(600, cfg.EmailPollSeconds));
+                    junkWake.Wait(seconds * 1000); junkWake.Reset();
+                }
+            }
+            finally
+            {
+                lock (ConnGate) { if (activeJunkConn == imap) activeJunkConn = null; }
+                imap.Close();
+            }
+        }
+
+        static void CheckReceiveFolders(Imap imap, int gen, Config cfg, List<ImapFolder> folders)
+        {
                 FolderState(gen, cfg, "正在检查 " + folders.Count + " 个目录", false);
                 if (folders.Count == 0)
                 {
@@ -460,12 +505,6 @@ namespace Codepass
                 }
                 if (recheck && complete && CanCommit(gen, true, cfg)) Interlocked.Exchange(ref junkRecentCompleted, requested);
                 FolderState(gen, cfg, succeeded + "/" + folders.Count + " 个目录检查成功" + (complete ? "" : "，其余稍后重试"), complete);
-            }
-            finally
-            {
-                lock (ConnGate) { if (activeJunkConn == imap) activeJunkConn = null; }
-                imap.Close();
-            }
         }
 
         static void ConnectAndLogin(Imap imap, Config cfg, int gen, bool junk)
@@ -785,7 +824,7 @@ namespace Codepass
             string id = Mime.HeaderValue(headerText, "Message-ID");
             string key = HashKey(MailboxKey(cfg, "") + "\n" + (string.IsNullOrWhiteSpace(id)
                 ? mailbox.Name + "\n" + mailbox.UidValidity + "\n" + uid : id.Trim()));
-            Program.SubmitReceivedEmail(text, from, code, key, cfg, fresh && !recentOnly, delegate { return CanCommit(gen, junk, cfg); },
+            Program.Incoming.SubmitReceivedEmail(text, from, code, key, cfg, fresh && !recentOnly, delegate { return CanCommit(gen, junk, cfg); },
                 recentOnly ? null : MailboxKey(cfg, mailbox.Name) + ":" + mailbox.UidValidity, recentOnly ? 0 : uid, !recentOnly,
                 receivedHeader.Received.HasValue ? receivedHeader.Received.Value.UtcDateTime : DateTime.UtcNow);
             MailResult(gen, junk, cfg, "最近邮件：已识别验证码（相同邮件不重复收录）");

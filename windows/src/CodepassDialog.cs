@@ -25,6 +25,8 @@ namespace Codepass
       {
           readonly MessageBoxButton buttonSet;
           MessageBoxResult result = MessageBoxResult.Cancel;
+          readonly Grid dialogLayout;
+          readonly StackPanel messageBody;
 
           public static MessageBoxResult Show(Window owner, string message, string title,
               MessageBoxButton buttons, MessageBoxImage image)
@@ -74,6 +76,7 @@ namespace Codepass
               shell.CornerRadius = new CornerRadius(8);
 
               Grid layout = new Grid();
+              dialogLayout = layout;
               layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(46) });
               layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
               layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -103,6 +106,7 @@ namespace Codepass
               layout.Children.Add(titleBar);
 
               StackPanel body = new StackPanel();
+              messageBody = body;
               body.Orientation = Orientation.Horizontal;
               body.Margin = new Thickness(24, 8, 24, 20);
               Border badge = MakeBadge(image);
@@ -133,6 +137,59 @@ namespace Codepass
               Content = host;
               Loaded += delegate { DisplayMotion.Reveal(this, layout); };
               PreviewKeyDown += OnPreviewKeyDown;
+          }
+
+          internal static CodepassDialog CreateWebhookGuide(Window owner, string endpoint)
+          {
+              CodepassDialog dialog = new CodepassDialog(owner, "", "Webhook 接入", MessageBoxButton.OK, MessageBoxImage.Information);
+              dialog.Width = Math.Min(620, Math.Max(320, SystemParameters.WorkArea.Width - 32));
+              dialog.MaxHeight = Math.Max(280, SystemParameters.WorkArea.Height - 32);
+              dialog.dialogLayout.RowDefinitions[1].Height = new GridLength(1, GridUnitType.Star);
+              dialog.dialogLayout.Children.Remove(dialog.messageBody);
+              StackPanel content = new StackPanel();
+              content.Children.Add(new TextBlock { Text = "在手机转发应用中填写以下内容", FontWeight = FontWeights.SemiBold,
+                  Margin = new Thickness(0, 0, 0, 16) });
+              Grid details = new Grid();
+              details.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(78) });
+              details.ColumnDefinitions.Add(new ColumnDefinition());
+              AddGuideRow(details, "网络", "手机和电脑需处于可互通网络", false);
+              AddGuideRow(details, "请求方式", "POST", false);
+              AddGuideRow(details, "请求地址", endpoint, true);
+              AddGuideRow(details, "请求头", "X-Token：填写短信设置中的访问令牌", false);
+              AddGuideRow(details, "请求正文", "使用完整短信原文", false);
+              content.Children.Add(details);
+              content.Children.Add(new TextBlock { Text = "接入验证", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 6) });
+              content.Children.Add(new TextBlock { Text = "从手机发送一条测试短信，再回到记录页确认接收与复制结果。",
+                  TextWrapping = TextWrapping.Wrap, LineHeight = 22 });
+              content.Children.Add(new TextBlock { Text = "电脑连通性测试通过，只代表电脑接收服务可访问；还需要验证手机实际发送。",
+                  Foreground = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : MakeBrush(0x61, 0x61, 0x61),
+                  TextWrapping = TextWrapping.Wrap, LineHeight = 22, Margin = new Thickness(0, 12, 0, 0) });
+              ScrollViewer scroll = new ScrollViewer { Content = content, Margin = new Thickness(24, 8, 24, 20),
+                  VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                  MaxHeight = Math.Max(160, dialog.MaxHeight - 150) };
+              Grid.SetRow(scroll, 1); dialog.dialogLayout.Children.Add(scroll);
+              return dialog;
+          }
+
+          static void AddGuideRow(Grid grid, string label, string value, bool address)
+          {
+              int row = grid.RowDefinitions.Count;
+              grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+              TextBlock name = new TextBlock { Text = label, Margin = new Thickness(0, 6, 12, 14),
+                  Foreground = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : MakeBrush(0x61, 0x61, 0x61) };
+              Grid.SetRow(name, row); grid.Children.Add(name);
+              FrameworkElement detail;
+              if (address)
+              {
+                  TextBox box = new TextBox { Name = "webhookEndpoint", Text = value, IsReadOnly = true, BorderThickness = new Thickness(1),
+                      Padding = new Thickness(8, 6, 8, 6), TextWrapping = TextWrapping.NoWrap, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                      FontFamily = new FontFamily("Consolas"), FontSize = 13 };
+                  System.Windows.Automation.AutomationProperties.SetName(box, "Webhook 请求地址");
+                  detail = box;
+              }
+              else detail = new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap, LineHeight = 22, Margin = new Thickness(0, 3, 0, 0) };
+              detail.Margin = new Thickness(0, detail.Margin.Top, 0, 12);
+              Grid.SetRow(detail, row); Grid.SetColumn(detail, 1); grid.Children.Add(detail);
           }
 
           static SolidColorBrush MakeBrush(byte r, byte g, byte b)

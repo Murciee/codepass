@@ -5,6 +5,7 @@ Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System
 $asm=[Reflection.Assembly]::LoadFile([IO.Path]::GetFullPath($ExePath))
 $flags=[Reflection.BindingFlags]'Public,NonPublic,Instance,Static'
 $configType=$asm.GetType('Codepass.Config'); $programType=$asm.GetType('Codepass.Program'); $windowType=$asm.GetType('Codepass.MainWindow')
+$delivery=$programType.GetField('Incoming',$flags).GetValue($null); $deliveryType=$delivery.GetType()
 $root=if($FixtureDirectory) { [IO.Path]::GetFullPath($FixtureDirectory) } else { Join-Path $PSScriptRoot ('..\build\privacy-quality-fixtures-'+[Guid]::NewGuid().ToString('N')) }
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $pass=0; $fail=0
@@ -70,7 +71,7 @@ $programType.GetField('appDir',$flags).SetValue($null,[string]$root)
 $historyPath=Join-Path $root 'history.txt'
 [void](Call $history 'Init' $null @($historyPath))
 $cfg.PrivacyMode=2; $cfg.EmailPrivacyMode=0; $cfg.EmailNotify=$false; $cfg.EmailAutoCopy=$false
-[void](Call $programType 'SubmitEmail' $null @('verification code 123456','synthetic@example.com','123456','privacy-latest-mail',$cfg,$false,[Func[bool]]{return $true},$null,[long]0,$true))
+[void](Call $deliveryType 'SubmitEmail' $delivery @('verification code 123456','synthetic@example.com','123456','privacy-latest-mail',$cfg,$false,[Func[bool]]{return $true},$null,[long]0,$true))
 $latest=Call $programType 'GetLatestReceipt' $null @()
 Assert 'privacy:latest-receipt-keeps-mail-channel' ($latest.Code -eq '123456' -and $latest.EmailChannel)
 for($i=0;$i -lt 101;$i++) {
@@ -89,9 +90,9 @@ try {
 } finally { [IO.File]::SetAttributes($historyPath,[IO.FileAttributes]::Normal) }
 [void](Call $history 'Clear' $null @())
 Assert 'privacy:successful-clear-clears-latest-receipt' ($null -eq (Call $programType 'GetLatestReceipt' $null @()))
-[void](Call $programType 'HandleIncoming' $null @('verification code 654321','http','Synthetic',$false,$false,$false))
+[void](Call $deliveryType 'HandleIncoming' $delivery @('verification code 654321','http','Synthetic',$false,$false,$false))
 Assert 'privacy:sms-receipt-keeps-sms-channel' (-not (Call $programType 'GetLatestReceipt' $null @()).EmailChannel)
-[void](Call $programType 'SubmitEmail' $null @('verification code 123456','synthetic@example.com','123456','privacy-restore-mail',$cfg,$false,[Func[bool]]{return $true},$null,[long]0,$true))
+[void](Call $deliveryType 'SubmitEmail' $delivery @('verification code 123456','synthetic@example.com','123456','privacy-restore-mail',$cfg,$false,[Func[bool]]{return $true},$null,[long]0,$true))
 [void](Call $programType 'SetLatestCode' $null @($null,$false))
 [void](Call $programType 'RestoreLatestFromHistory' $null @())
 Assert 'privacy:restart-restores-mail-code-with-channel' ((Call $programType 'GetLatestReceipt' $null @()).Code -eq '123456' -and (Call $programType 'GetLatestReceipt' $null @()).EmailChannel)

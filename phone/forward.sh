@@ -22,7 +22,7 @@ INTERVAL=3                   # 轮询间隔(秒)
 MIN_LEN=4
 MAX_LEN=8
 
-LOG=/data/local/tmp/smscode.log
+LOG="${CODEPASS_LOG:-/data/local/tmp/smscode.log}"
 
 # Magisk 模块会把配置文件路径作为第一个参数传入。
 CONFIG_FILE="${1:-/data/adb/codepass-sms/config.conf}"
@@ -121,50 +121,135 @@ extract_code() {
 log "===== codepass started (pc=$PC_IP:$PC_PORT pc2=$PC2_IP:$PC2_PORT) ====="
 LAST_ID=""
 
-post_lan() {
-    if [ -n "$PC_IP" ]; then
-        curl -s -m 5 -X POST "http://$PC_IP:$PC_PORT/sms" \
-             -H "Content-Type: text/plain" -H "X-Token: $TOKEN" --data-raw "$1" >/dev/null 2>&1
-    fi
-    if [ -n "$PC2_IP" ]; then
-        curl -s -m 5 -X POST "http://$PC2_IP:$PC2_PORT/sms" \
-             -H "Content-Type: text/plain" -H "X-Token: $PC2_TOKEN" --data-raw "$1" >/dev/null 2>&1
+# 队列与扫描水位在同一个原子替换文件内；正文仅在本机私有目录中以 Base64 保存。
+# 每个目标独立确认；失败重试最多保留 10 分钟，避免延迟投递旧验证码。
+STATE_DIR="${CODEPASS_STATE_DIR:-/data/adb/codepass-sms/state}"
+STATE="$STATE_DIR/outbox.queue"
+encode() {
+    printf '%s' "$1" > "$STATE_DIR/encode-input.tmp" || return 1
+    base64 < "$STATE_DIR/encode-input.tmp" > "$STATE_DIR/encode-output.tmp" || return 1
+    tr -d '\r\n' < "$STATE_DIR/encode-output.tmp"
+}
+
+send_target() {
+    target="$1"; payload="$2"
+    case "$target" in
+        lan1) [ -z "$PC_IP" ] && return 0
+            status=$(curl -q -f -s -o /dev/null -w '%{http_code}' --connect-timeout 2 -m 5 -X POST "http://$PC_IP:$PC_PORT/sms" -H 'Content-Type: application/json' -H "X-Token: $TOKEN" --data-raw "$payload" 2>/dev/null) || return 1 ;;
+        lan2) [ -z "$PC2_IP" ] && return 0
+            status=$(curl -q -f -s -o /dev/null -w '%{http_code}' --connect-timeout 2 -m 5 -X POST "http://$PC2_IP:$PC2_PORT/sms" -H 'Content-Type: application/json' -H "X-Token: $PC2_TOKEN" --data-raw "$payload" 2>/dev/null) || return 1 ;;
+        ntfy) [ -z "$NTFY_TOPIC" ] && return 0
+            status=$(curl -q -f --proto '=https' --proto-redir '=https' -s -o /dev/null -w '%{http_code}' --connect-timeout 2 -m 5 -X POST "$NTFY_SERVER/$NTFY_TOPIC" -H "Authorization: Bearer $NTFY_TOKEN" -H 'Content-Type: text/plain' --data-raw "$payload" 2>/dev/null) || return 1 ;;
+    esac
+    [ "$status" = 200 ]
+}
+
+query_sms() {
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then
+        content query --uri content://sms/inbox --projection _id:date --where "_id > $1" --sort '_id ASC'
+    else
+        su -c "content query --uri content://sms/inbox --projection _id:date --where '_id > $1' --sort '_id ASC'"
     fi
 }
 
-post_ntfy() {
-    [ -z "$NTFY_TOPIC" ] && return 0
-    if [ -n "$NTFY_TOKEN" ]; then
-        curl -q --proto '=https' --proto-redir '=https' -s -m 5 -X POST "$NTFY_SERVER/$NTFY_TOPIC" \
-             -H "Authorization: Bearer $NTFY_TOKEN" --data-raw "$1" >/dev/null 2>&1
+query_field() {
+    case "$1:$2" in *[!0-9a-z:]*|:*) return 1 ;; esac
+    if [ "$(id -u 2>/dev/null)" = 0 ]; then
+        content query --uri content://sms/inbox --projection "$2" --where "_id = $1"
     else
-        curl -q --proto '=https' --proto-redir '=https' -s -m 5 -X POST "$NTFY_SERVER/$NTFY_TOPIC" \
-             --data-raw "$1" >/dev/null 2>&1
+        su -c "content query --uri content://sms/inbox --projection '$2' --where '_id = $1'"
     fi
 }
 
-while true; do
-    # Magisk service.sh 本身就是 root; 手动运行时再使用 su。
-    if [ "$(id -u 2>/dev/null)" = "0" ]; then
-        ROW=$(content query --uri content://sms/inbox --projection _id:body --sort 'date DESC' --limit 1 2>>"$LOG")
-    else
-        ROW=$(su -c "content query --uri content://sms/inbox --projection _id:body --sort 'date DESC' --limit 1" 2>>"$LOG")
-    fi
-    ID=$(echo "$ROW"    | sed -n 's/.*_id=\([0-9]*\).*/\1/p')
-    BODY=$(echo "$ROW"  | sed -n 's/.*body=//p')
+read_field() {
+    query_field "$1" "$2" > "$STATE_DIR/field.tmp" 2>>"$LOG" || return 1
+    first=$(head -1 "$STATE_DIR/field.tmp") || return 1
+    case "$first" in "Row: 0 $2="*) sed "1s/^Row: 0 $2=//" "$STATE_DIR/field.tmp" ;; *) return 1 ;; esac
+}
 
-    if [ -n "$ID" ]; then
-        if [ -z "$LAST_ID" ]; then
-            LAST_ID="$ID"                     # 首轮只记录, 不推送历史短信
-        elif [ "$ID" != "$LAST_ID" ]; then
-            LAST_ID="$ID"
-            CODE=$(extract_code "$BODY")
-            if [ -n "$CODE" ]; then
-                log "verification code detected; forwarding sms text"
-                post_lan "$BODY"
-                post_ntfy "$BODY"
-            fi
+validate_queue() {
+    [ -f "$STATE" ] || return 0
+    # 同时验证水位、字段数和三个独立确认位；任何坏记录都保留整份原状态。
+    awk -F'|' '
+      NR==1 { if ($0 !~ /^[0-9]+$/) exit 1; next }
+      NF!=7 || $1 !~ /^[0-9]+-[0-9]+$/ || $2 !~ /^[0-9]+$/ || length($2)>10 ||
+      $3 !~ /^[A-Za-z0-9+\/=]*$/ || $4 !~ /^[A-Za-z0-9+\/=]+$/ ||
+      $5 !~ /^[01]$/ || $6 !~ /^[01]$/ || $7 !~ /^[01]$/ { exit 1 }
+      END { if (NR==0) exit 1 }
+    ' "$STATE" || return 1
+    last=$(tail -c 1 "$STATE" | od -An -tu1) || return 1
+    [ "$last" -eq 10 ] 2>/dev/null
+}
+
+scan_sms() {
+    validate_queue || return 1
+    if [ -f "$STATE" ]; then
+        water=$(head -1 "$STATE") || return 1
+        case "$water" in ''|*[!0-9]*) return 1 ;; esac
+        initial=0
+    else water=0; initial=1; fi
+    # 元数据查询不含正文；每条正文单独取，正文内的 Row/Error/逗号不会影响边界。
+    query_sms "$water" > "$STATE_DIR/query.tmp" 2>>"$LOG" || return 1
+    if [ "$initial" = 0 ]; then tail -n +2 "$STATE" > "$STATE_DIR/next.tmp" || return 1
+    else printf '' > "$STATE_DIR/next.tmp" || return 1; fi
+    while IFS= read -r row; do
+        case "$row" in ''|'No result found.') continue ;; esac
+        id=$(printf '%s\n' "$row" | sed -n 's/^Row: [0-9]* _id=\([0-9][0-9]*\), date=[0-9][0-9]*$/\1/p') || return 1
+        stamp=${row##*, date=}
+        case "$id:$stamp" in *[!0-9:]*|:|*:) return 1 ;; esac
+        [ -n "$id" ] || return 1
+        [ "$id" -gt "$water" ] || continue
+        water="$id"
+        [ "$initial" = 1 ] && continue
+        seconds=$(awk -v n="$stamp" 'BEGIN{printf "%.0f",int(n/1000)}') || return 1
+        now=$(date +%s) || return 1
+        [ "$((now-seconds))" -gt 600 ] && continue
+        body=$(read_field "$id" body) || return 1
+        code=$(extract_code "$body") || return 1
+        [ -z "$code" ] && continue
+        address=$(read_field "$id" address) || return 1
+        encoded_body=$(encode "$body") || return 1
+        encoded_sender=$(encode "$address") || return 1
+        printf '%s|%s|%s|%s|0|0|0\n' "$id-$stamp" "$seconds" "$encoded_sender" "$encoded_body" >> "$STATE_DIR/next.tmp" || return 1
+    done < "$STATE_DIR/query.tmp"
+    printf '%s\n' "$water" > "$STATE_DIR/commit.tmp" || return 1
+    cat "$STATE_DIR/next.tmp" >> "$STATE_DIR/commit.tmp" || return 1
+    # 队列最多 1000 条；容量不足保留旧水位，等待已排队消息送出后重试扫描。
+    count=$(wc -l < "$STATE_DIR/commit.tmp") || return 1
+    [ "$count" -le 1001 ] || return 1
+    mv "$STATE_DIR/commit.tmp" "$STATE"
+}
+
+deliver_queue() {
+    [ -f "$STATE" ] || return 0
+    validate_queue || return 1
+    head -1 "$STATE" > "$STATE_DIR/delivery.tmp" || return 1
+    tail -n +2 "$STATE" > "$STATE_DIR/pending.tmp" || return 1
+    while IFS='|' read -r id stamp sender body lan1 lan2 ntfy; do
+        case "$stamp:$lan1$lan2$ntfy" in *[!0-9:]*|:*) return 1 ;; esac
+        now=$(date +%s) || return 1
+        [ "$((now-stamp))" -gt 600 ] && continue
+        payload=$(printf '{"codepass":1,"id":"%s","time":%s,"sender_b64":"%s","body_b64":"%s"}' "$id" "$stamp" "$sender" "$body") || return 1
+        # 使用当前子进程的退出状态，不复用可能陈旧的确认文件。
+        ( [ "$lan1" = 1 ] || send_target lan1 "$payload" ) & p1=$!
+        ( [ "$lan2" = 1 ] || send_target lan2 "$payload" ) & p2=$!
+        ( [ "$ntfy" = 1 ] || send_target ntfy "$payload" ) & p3=$!
+        if wait "$p1"; then lan1=1; fi
+        if wait "$p2"; then lan2=1; fi
+        if wait "$p3"; then ntfy=1; fi
+        if [ "$lan1$lan2$ntfy" != 111 ]; then
+            printf '%s|%s|%s|%s|%s|%s|%s\n' "$id" "$stamp" "$sender" "$body" "$lan1" "$lan2" "$ntfy" >> "$STATE_DIR/delivery.tmp" || return 1
         fi
-    fi
+    done < "$STATE_DIR/pending.tmp"
+    mv "$STATE_DIR/delivery.tmp" "$STATE"
+}
+
+[ "${CODEPASS_LIBRARY_ONLY:-0}" = 1 ] && return 0
+umask 077
+mkdir -p "$STATE_DIR" || exit 1
+chmod 700 "$STATE_DIR" || exit 1
+while true; do
+    scan_sms || log 'sms scan pending; previous watermark retained'
+    deliver_queue || log 'sms delivery pending; previous queue retained'
     sleep "$INTERVAL"
 done

@@ -15,7 +15,19 @@ public static class LayoutCapture {
         byte[] pixels = new byte[width * height * 4];
         bitmap.CopyPixels(pixels, width * 4, 0);
         bool nonempty = pixels[((height / 2) * width + width / 2) * 4 + 3] > 0;
-        if (!nonempty) return false;
+        if (!nonempty) {
+            FrameworkElement content = visual as FrameworkElement;
+            Window owner = content == null ? null : Window.GetWindow(content);
+            if (owner == null || !object.ReferenceEquals(owner.Content, content)) return false;
+            try {
+                owner.Content = null;
+                content.Measure(new Size(width, height)); content.Arrange(new Rect(0, 0, width, height)); content.UpdateLayout();
+                bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(content); bitmap.CopyPixels(pixels, width * 4, 0);
+                nonempty = pixels[((height / 2) * width + width / 2) * 4 + 3] > 0;
+            } finally { owner.Content = content; content.UpdateLayout(); }
+            if (!nonempty) return false;
+        }
         PngBitmapEncoder png = new PngBitmapEncoder();
         png.Frames.Add(BitmapFrame.Create(bitmap));
         using (FileStream output = File.Create(path)) png.Save(output);
@@ -45,11 +57,16 @@ function AddRecord([string]$channel,[string]$sender,[string]$code,[string]$raw) 
     $item=[Activator]::CreateInstance($itemType,$true)
     $item.Channel=$channel; $item.Source=$sender; $item.Code=$code; $item.Raw=$raw; $item.Time='10-11 12:00:00'
     [void](Call $historyType 'AddUnique' $null @($item))
+    [void](Call $programType 'RestoreLatestFromHistory' $null @())
 }
 function Pump {
     $frame=New-Object Windows.Threading.DispatcherFrame
     [void][Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke([Windows.Threading.DispatcherPriority]::ContextIdle,[Action]{ $frame.Continue=$false })
     [Windows.Threading.Dispatcher]::PushFrame($frame)
+}
+function FlushSearch {
+    [void](Call $windowType 'RefreshHistory' $window @())
+    Pump
 }
 function Layout([int]$width,[int]$height) {
     $window.Width=$width; $window.Height=$height
@@ -94,13 +111,27 @@ $window.ShowActivated=$false
 $window.Show(); Pump
 $content=$window.Content; $search=$content.FindName('txtHistorySearch'); $list=$content.FindName('listHost')
 Assert 'history:default-all-channels' ($list.Children.Count -eq 3)
+Assert 'history:removed-status-and-setup-controls' ($null -eq $content.FindName('receiveStatusPanel') -and $null -eq $content.FindName('firstRunActions') -and $null -eq $content.FindName('btnSetupSms') -and $null -eq $content.FindName('btnSetupEmail'))
+Assert 'history:action-header-removed-buttons-kept' ($content.FindName('historyHeaders').Children.Count -eq 4 -and $list.Children[0].Child.Children[4] -is [Windows.Controls.Button])
+Assert 'history:retention-always-visible' ($content.FindName('historySettings') -is [Windows.Controls.StackPanel] -and $content.FindName('txtHistoryRetention').IsVisible -and $content.FindName('historyRetentionHint').IsVisible)
+$accent=$windowType.GetField('AccentTx',$flags).GetValue($null)
+Assert 'history:only-newest-code-blue' ($list.Children[0].Child.Children[2].Foreground -eq $accent -and $list.Children[1].Child.Children[2].Foreground -eq $list.Children[1].Child.Children[0].Foreground -and $list.Children[2].Child.Children[2].Foreground -eq $list.Children[2].Child.Children[0].Foreground)
+$colorItems=Call $historyType 'Snapshot' $null @();$oldCode=$colorItems[1].Code
+$colorItems[1].Code=$colorItems[0].Code
+FlushSearch
+Assert 'history:identical-code-does-not-highlight-old-record' ($list.Children[0].Child.Children[2].Foreground -eq $accent -and $list.Children[1].Child.Children[2].Foreground -ne $accent)
+$colorItems[1].Code=$oldCode;FlushSearch
 $search.Text='exampleshop'
+FlushSearch
 Assert 'history:case-insensitive-source-and-body' ($list.Children.Count -eq 2)
+Assert 'history:filter-does-not-promote-old-code' ($list.Children[0].Child.Children[2].Foreground -ne $accent -and $list.Children[1].Child.Children[2].Foreground -ne $accent)
 [void](Call $windowType 'SelectHistoryChannel' $window @('email'))
 Assert 'history:search-and-channel-combined' ($list.Children.Count -eq 1)
 $search.Text='shop 271828'
+FlushSearch
 Assert 'history:multi-word-cross-field-match' ($list.Children.Count -eq 1)
 $search.Text='missing-service'
+FlushSearch
 Assert 'history:empty-search-feedback' ($list.Children.Count -eq 0 -and $content.FindName('lblHistoryEmpty').Visibility.ToString() -eq 'Visible')
 AddRecord 'email' 'missing-service' '424242' ''
 [void](Call $windowType 'RefreshHistory' $window @())
@@ -110,11 +141,45 @@ Assert 'history:reset-restores-all' ($list.Children.Count -eq 4 -and $search.Tex
 [void](Call $windowType 'SelectHistoryChannel' $window @('sms'))
 Assert 'history:sms-channel-only' ($list.Children.Count -eq 1)
 [void](Call $windowType 'SelectHistoryChannel' $window @('all'))
+Layout 1100 760
+$search.Text='shop 271828';FlushSearch
+$row=$list.Children[0];$actions=$row.Child.Children[4]
+$actions.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+Pump
+$menu=$windowType.GetField('historyActionsMenu',$flags).GetValue($window)
+Assert 'history:actions-menu-opens' ($null -ne $menu -and $menu.IsOpen -and $menu.Items.Count -eq 2 -and [object]::ReferenceEquals($menu.PlacementTarget,$actions))
+$delete=$menu.Items[1]
+$delete.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.MenuItem]::ClickEvent)))
+Pump
+Assert 'history:delete-keeps-search-filter' ($search.Text -eq 'shop 271828' -and $list.Children.Count -eq 0 -and (Call $historyType 'Snapshot' $null @()).Count -eq 3)
+[void](Call $historyType 'Init' $null @((Join-Path $root 'history.txt')))
+Assert 'history:menu-delete-persists' ((Call $historyType 'Snapshot' $null @()).Count -eq 3 -and @((Call $historyType 'Snapshot' $null @())|Where-Object{$_.Code -eq '271828'}).Count -eq 0)
+$delete.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.MenuItem]::ClickEvent)))
+Assert 'history:stale-menu-cannot-delete-other-record' ((Call $historyType 'Snapshot' $null @()).Count -eq 3)
+$content.FindName('btnHistoryReset').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+$actions=$list.Children[0].Child.Children[4]
+$actions.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+$menu=$windowType.GetField('historyActionsMenu',$flags).GetValue($window);$delete=$menu.Items[1]
+$cfg.LockEnabled=$true
+[void](Call $windowType 'LockWindow' $window @())
+Assert 'history:lock-closes-actions-menu' (-not $menu.IsOpen -and $null -eq $windowType.GetField('historyActionsMenu',$flags).GetValue($window))
+$delete.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.MenuItem]::ClickEvent)))
+Assert 'history:locked-delete-is-blocked' ((Call $historyType 'Snapshot' $null @()).Count -eq 3)
+$cfg.LockEnabled=$false;$content.FindName('lockOverlay').Visibility=[Windows.Visibility]::Collapsed
+[void](Call $windowType 'SetLockedContent' $window @($false))
+foreach($size in @(640,1100)) {
+    Layout $size 760
+    Assert ('history:actions-fit-row-'+$size) (WithinParent $actions)
+}
 Capture 'history-search.png' 1100 760
-$emailInput=$content.FindName('txtEmailAccount'); $emailGrid=[Windows.LogicalTreeHelper]::GetParent($emailInput)
+$emailInput=$content.FindName('txtEmailAccount'); $emailWrapper=[Windows.LogicalTreeHelper]::GetParent($emailInput); $emailGrid=[Windows.LogicalTreeHelper]::GetParent($emailWrapper)
 [void](Call $windowType 'SelectSection' $window @('email'))
+Capture 'email-default.png' 780 760
+$content.FindName('emailServerAdvanced').IsExpanded=$true
+$content.FindName('emailAdvanced').IsExpanded=$true
+$content.FindName('btnEmailRecheck').Parent.Parent.Parent.IsExpanded=$true
 Layout 780 760
-Assert 'layout:email-labels-above-narrow' ([Windows.Controls.Grid]::GetColumn($emailInput) -eq 1 -and [Windows.Controls.Grid]::GetRow($emailInput) -eq 7 -and $emailGrid.ColumnDefinitions[0].Width.Value -eq 0)
+Assert 'layout:email-labels-above-narrow' ([Windows.Controls.Grid]::GetColumn($emailWrapper) -eq 1 -and [Windows.Controls.Grid]::GetRow($emailWrapper) -eq 7 -and $emailGrid.ColumnDefinitions[0].Width.Value -eq 0)
 Assert 'layout:email-status-before-connection' ($content.FindName('cardEmailStatus').TranslatePoint((New-Object Windows.Point(0,0)),$content).Y -lt $content.FindName('cardEmail').TranslatePoint((New-Object Windows.Point(0,0)),$content).Y)
 Assert 'layout:connection-rule-advanced-visible' ($content.FindName('cardEmail').Visibility.ToString() -eq 'Visible' -and $content.FindName('cardEmailFilters').Visibility.ToString() -eq 'Visible' -and $content.FindName('cardQqPopup').Visibility.ToString() -eq 'Visible')
 Assert 'layout:no-horizontal-email-scroll' ($content.FindName('settingsScroll').ExtentWidth -le $content.FindName('settingsScroll').ViewportWidth+1)
@@ -122,7 +187,7 @@ Assert 'layout:email-fields-within-parent' ((WithinParent $emailInput) -and (Wit
 CheckControls 'email-narrow' @('cmbEmailProvider','txtEmailServer','txtEmailAccount','emailAuthHost','txtEmailKeywordAdd','btnEmailKeywordAdd','btnEmailKeywordDefault','txtEmailSenders','chkEmailJunk','chkEmailSaveBody','chkQqPopup','txtEmailPoll','btnEmailTest','btnEmailRecheck')
 Capture 'email-narrow.png' 780 760
 Layout 1280 850
-Assert 'layout:email-wide-restores-label-column' ([Windows.Controls.Grid]::GetRow($emailInput) -eq 3 -and $emailGrid.ColumnDefinitions[0].Width.Value -eq 140)
+Assert 'layout:email-wide-restores-label-column' ([Windows.Controls.Grid]::GetRow($emailWrapper) -eq 3 -and $emailGrid.ColumnDefinitions[0].Width.Value -eq 150)
 Assert 'layout:email-wide-field-within-parent' (WithinParent $emailInput)
 CheckControls 'email-wide' @('txtEmailAccount','emailAuthHost','txtEmailKeywordAdd','btnEmailKeywordDefault','chkQqPopup')
 Capture 'email-wide.png' 1280 850
@@ -143,10 +208,51 @@ foreach($section in @('general','security')) {
 [void](Call $windowType 'SelectSection' $window @('general'))
 Assert 'layout:sms-sections-visible' ($content.FindName('cardNtfy').Visibility.ToString() -eq 'Visible' -and $content.FindName('cardSmsFilters').Visibility.ToString() -eq 'Visible')
 Assert 'layout:sms-controls-within-parent' ((WithinParent ($content.FindName('txtPcIp'))) -and (WithinParent ($content.FindName('btnDetect'))) -and (WithinParent ($content.FindName('btnTestPc'))))
+foreach($size in @(640,780,1100,1280)) {
+    [void](Call $windowType 'SelectSection' $window @('general'))
+    Layout $size 850
+    $reference=$content.FindName('txtNtfyServer')
+    $left=$reference.TranslatePoint((New-Object Windows.Point(0,0)),$content).X
+    foreach($name in @('txtPort','txtPcIp','txtClear','codeLengthRow','txtNtfyTopic','txtSmsMaxLength','txtFilterKeywords','txtFilterRegex')) {
+        $control=$content.FindName($name)
+        Assert ('alignment:sms-equal-width-'+$size+'-'+$name) ([Math]::Abs($control.ActualWidth-$reference.ActualWidth) -le 1)
+        Assert ('alignment:sms-same-left-'+$size+'-'+$name) ([Math]::Abs($control.TranslatePoint((New-Object Windows.Point(0,0)),$content).X-$left) -le 1)
+    }
+    $secret=$windowType.GetField('fldNtfyToken',$flags).GetValue($window)
+    $masked=$secret.GetType().GetField('masked',$flags).GetValue($secret)
+    Assert ('alignment:secret-equals-ordinary-'+$size) ([Math]::Abs($masked.ActualWidth-$reference.ActualWidth) -le 1)
+    $ipRow=$content.FindName('pcAddressRow')
+    $lengthRow=$content.FindName('codeLengthRow')
+    $ipBottom=$ipRow.TranslatePoint((New-Object Windows.Point(0,$ipRow.ActualHeight)),$content).Y
+    Assert ('alignment:address-actions-do-not-overlap-next-row-'+$size) ($lengthRow.TranslatePoint((New-Object Windows.Point(0,0)),$content).Y -ge $ipBottom+6)
+    CheckControls ('aligned-sms-'+$size) @('txtNtfyServer','ntfyTokenHost','btnTestPc','btnDetect')
+    if($size -eq 1100) { Capture 'sms-aligned-wide.png' 1100 850 }
+    [void](Call $windowType 'SelectSection' $window @('email'))
+    Layout $size 850
+    $secret=$windowType.GetField('fldEmailAuth',$flags).GetValue($window)
+    $masked=$secret.GetType().GetField('masked',$flags).GetValue($secret)
+    Assert ('alignment:email-secret-equals-account-'+$size) ([Math]::Abs($masked.ActualWidth-$emailInput.ActualWidth) -le 1)
+}
+$dialogType=$asm.GetType('Codepass.CodepassDialog')
+$guide=Call $dialogType 'CreateWebhookGuide' $null @($window,'http://192.0.2.51:8787/sms')
+$guide.ShowActivated=$false;$guide.Show();Pump
+$guide.Content.Opacity=1;$guide.Content.UpdateLayout()
+$address=[Windows.LogicalTreeHelper]::FindLogicalNode($guide,'webhookEndpoint')
+Assert 'webhook:address-is-single-line-selectable' ($address.IsReadOnly -and $address.TextWrapping -eq [Windows.TextWrapping]::NoWrap)
+Assert 'webhook:address-fits-without-horizontal-scroll' ($address.ExtentWidth -le $address.ViewportWidth+1)
+if([LayoutCapture]::Save($guide.Content,[int]$guide.ActualWidth,[int]$guide.ActualHeight,(Join-Path $evidence 'webhook-aligned.png'))) { Write-Output 'EVIDENCE_SAVED=webhook-aligned.png' }
+else { Write-Output 'EVIDENCE_UNAVAILABLE=webhook-aligned.png' }
+$guide.Close()
 [void](Call $windowType 'SelectSection' $window @('about'))
 Layout 780 560
 Assert 'layout:diagnostics-action-within-parent' (WithinParent ($content.FindName('btnDiagnostics')))
 Capture 'about-narrow.png' 780 560
+[void](Call $windowType 'SelectSection' $window @('history'))
+Capture 'history-small.png' 640 460
+Assert 'history:small-retention-input-and-hint-visible' ($content.FindName('txtHistoryRetention').IsVisible -and $content.FindName('historyRetentionHint').IsVisible -and $content.FindName('historyScroll').ActualHeight -ge 60)
+$retentionHint=$content.FindName('historyRetentionHint')
+$hintBottom=$retentionHint.TranslatePoint((New-Object Windows.Point(0,$retentionHint.ActualHeight)),$content).Y
+Assert 'history:small-retention-hint-inside-window' ($hintBottom -lt $content.ActualHeight)
 # Prove geometry assertion catches clipping even when horizontal scrolling is disabled.
 $clipProbe=New-Object Windows.Controls.ScrollViewer
 $clipProbe.HorizontalScrollBarVisibility=[Windows.Controls.ScrollBarVisibility]::Disabled

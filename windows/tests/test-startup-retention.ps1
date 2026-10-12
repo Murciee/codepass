@@ -4,6 +4,8 @@ $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Xaml
 $asm=[Reflection.Assembly]::LoadFile([IO.Path]::GetFullPath($ExePath)); $flags=[Reflection.BindingFlags]'Public,NonPublic,Static,Instance'
 $cfgType=$asm.GetType('Codepass.Config'); $program=$asm.GetType('Codepass.Program'); $history=$asm.GetType('Codepass.History')
+$clipboard=$program.GetField('Clipboard',$flags).GetValue($null); $clipboardType=$clipboard.GetType()
+$receipts=$history.GetField('Receipts',$flags).GetValue($null)
 $itemType=$asm.GetType('Codepass.HistoryItem'); $windowType=$asm.GetType('Codepass.MainWindow')
 $root=[IO.Path]::GetFullPath($FixtureDirectory); New-Item -ItemType Directory -Path $root | Out-Null
 $pass=0; $fail=0
@@ -16,9 +18,10 @@ function Call($type,[string]$name,$target,[object[]]$values) {
  return ,($method.Invoke($target,$args))
 }
 function Rejected([scriptblock]$action){try{& $action|Out-Null;return $false}catch{return $true}}
-function AddItem([string]$channel,[DateTime]$received,[string]$code,[string]$key='') {
+function AddItem([string]$channel,[DateTime]$received,[string]$code,[string]$key='',[string]$mailbox='',[long]$uid=0) {
  $item=[Activator]::CreateInstance($itemType,$true);$item.Channel=$channel;$item.Time=$received.ToLocalTime().ToString('MM-dd HH:mm:ss')
  $item.ReceivedUtcTicks=$received.Ticks;$item.Code=$code;$item.MessageKey=$key;$item.Source='Synthetic';$item.Raw='Synthetic only'
+ $item.MailboxKey=$mailbox;$item.MailUid=$uid
  [void](Call $history 'AddUnique' $null @($item)); return ,$item
 }
 $cfg=[Activator]::CreateInstance($cfgType,$true);$program.GetField('cfg',$flags).SetValue($null,$cfg)
@@ -56,6 +59,53 @@ $leap=Call $history 'LegacyReceivedUtc' $null @('02-29 12:00:00',[DateTime]::Spe
 Assert 'retention:legacy-leap-day-remains-old' ($leap.ToLocalTime().Year -eq 2024)
 $crossYear=Call $history 'LegacyReceivedUtc' $null @('12-31 23:00:00',[DateTime]::SpecifyKind([DateTime]'2026-01-02 12:00:00',[DateTimeKind]::Utc))
 Assert 'retention:legacy-year-rollover' ($crossYear.ToLocalTime().Year -eq 2025)
+$removePath=Join-Path $root 'remove-history.txt';[void](Call $history 'Init' $null @($removePath))
+$older=AddItem 'sms' $now.AddMinutes(-2) '224466' 'remove-sms-older'
+$twin=AddItem 'email' $now '445566' 'remove-mail-twin'
+$current=AddItem 'email' $now '445566' 'remove-mail-current' 'remove-mailbox' 42
+[void](Call $program 'SetLatestRecord' $null @($current))
+$latest=Call $program 'GetLatestReceipt' $null @()
+Assert 'remove:same-code-only-selected-record' ((Call $history 'Remove' $null @($twin)) -and (Call $history 'Snapshot' $null @()).Count -eq 2 -and [object]::ReferenceEquals((Call $history 'Snapshot' $null @())[0],$current))
+Assert 'remove:same-code-keeps-unrelated-latest' ([object]::ReferenceEquals($latest,(Call $program 'GetLatestReceipt' $null @())))
+Assert 'remove:stale-action-is-no-op' (-not (Call $history 'Remove' $null @($twin)) -and (Call $history 'Snapshot' $null @()).Count -eq 2)
+[IO.File]::SetAttributes($removePath,[IO.FileAttributes]::ReadOnly)
+try {
+ Assert 'remove:failed-save-rejected' (Rejected{Call $history 'Remove' $null @($current)})
+ Assert 'remove:failed-save-keeps-order' ((Call $history 'Snapshot' $null @()).Count -eq 2 -and [object]::ReferenceEquals((Call $history 'Snapshot' $null @())[0],$current))
+ Assert 'remove:failed-save-keeps-latest' ([object]::ReferenceEquals($latest,(Call $program 'GetLatestReceipt' $null @())))
+} finally { [IO.File]::SetAttributes($removePath,[IO.FileAttributes]::Normal) }
+Assert 'remove:retry-after-storage-repair' (Call $history 'Remove' $null @($current))
+Assert 'remove:latest-falls-back-to-remaining' ((Call $program 'GetLatestReceipt' $null @()).Code -eq '224466')
+[void](Call $history 'Init' $null @($removePath))
+Assert 'remove:deletion-survives-restart' ((Call $history 'Snapshot' $null @()).Count -eq 1 -and (Call $history 'Snapshot' $null @())[0].Code -eq '224466')
+Assert 'remove:mail-dedup-survives-restart' (-not (Call $history 'AddUnique' $null @($current)) -and (Call $history 'Snapshot' $null @()).Count -eq 1)
+$pending=$receipts.GetType().GetField('PendingReceipts',$flags).GetValue($receipts)
+Assert 'remove:pending-mail-ack-retained' $pending.ContainsKey('remove-mail-current')
+[IO.File]::SetAttributes($removePath,[IO.FileAttributes]::ReadOnly)
+try { [void](Call $history 'AcknowledgeMailbox' $null @('remove-mailbox',[long]42)) }
+finally { [IO.File]::SetAttributes($removePath,[IO.FileAttributes]::Normal) }
+Assert 'receipts:failed-ack-keeps-pending-memory' $pending.ContainsKey('remove-mail-current')
+[void](Call $history 'Init' $null @($removePath))
+Assert 'receipts:failed-ack-keeps-pending-disk' $pending.ContainsKey('remove-mail-current')
+[void](Call $history 'AcknowledgeMailbox' $null @('remove-mailbox',[long]42))
+Assert 'remove:pending-mail-can-still-be-acknowledged' (-not $pending.ContainsKey('remove-mail-current'))
+[void](Call $history 'Init' $null @($removePath))
+Assert 'receipts:successful-ack-persists' (-not $pending.ContainsKey('remove-mail-current'))
+$historyOnly=[Activator]::CreateInstance($itemType,$true);$historyOnly.Channel='email';$historyOnly.Code='778899';$historyOnly.Time=$now.ToLocalTime().ToString('MM-dd HH:mm:ss');$historyOnly.ReceivedUtcTicks=$now.Ticks;$historyOnly.CanBeLatest=$false
+[void](Call $history 'AddUnique' $null @($historyOnly))
+[void](Call $program 'RestoreLatestFromHistory' $null @())
+$last=(Call $history 'Snapshot' $null @())[1]
+Assert 'remove:last-copyable-clears-latest' ((Call $history 'Remove' $null @($last)) -and $null -eq (Call $program 'GetLatestReceipt' $null @()))
+Assert 'remove:history-only-record-kept' ((Call $history 'Snapshot' $null @()).Count -eq 1 -and -not (Call $history 'Snapshot' $null @())[0].CanBeLatest)
+foreach($prefix in @('r3','d3')) {
+ $damagedPath=Join-Path $root ($prefix+'-damaged-ledger.txt')
+ $damaged=[IO.File]::ReadAllText($removePath)+$prefix+"`tinvalid-synthetic-payload`n"
+ [IO.File]::WriteAllText($damagedPath,$damaged)
+ [void](Call $history 'Init' $null @($damagedPath))
+ Assert ('receipts:'+ $prefix +'-damaged-ledger-blocks-save') (Rejected { Call $history 'RetrySave' $null @() })
+ Assert ('receipts:'+ $prefix +'-damaged-original-retained') ([IO.File]::ReadAllText($damagedPath) -eq $damaged)
+}
+[void](Call $history 'Init' $null @($removePath))
 Assert 'startup:manual-not-silent' (-not (Call $program 'IsSilentStartup' $null @(,[string[]]@('--dry'))))
 Assert 'startup:argument-case-insensitive' (Call $program 'IsSilentStartup' $null @(,[string[]]@('--STARTUP')))
 Assert 'startup:quoted-command-with-silent-flag' ((Call $program 'StartupCommand' $null @('D:\Synthetic Folder\codepass.exe')) -eq '"D:\Synthetic Folder\codepass.exe" --startup')
@@ -64,13 +114,13 @@ $program.GetField('mainWindow',$flags).SetValue($null,$window)
 [void](Call $program 'PrepareMainWindow' $null @($window,$true))
 Assert 'startup:hidden-handle-ready' ((New-Object Windows.Interop.WindowInteropHelper($window)).Handle -ne [IntPtr]::Zero -and -not $window.IsVisible)
 $cfg.AutoClearSeconds=60
-$request=[long]$program.GetField('clipboardRequest',$flags).GetValue($null)
-[void](Call $program 'CompleteClipboardClear' $null @($true,[uint32]123,$request))
-$clear=$program.GetField('clearTimer',$flags).GetValue($null)
+$request=[long]$clipboardType.GetField('clipboardRequest',$flags).GetValue($clipboard)
+[void](Call $clipboardType 'CompleteClipboardClear' $clipboard @($true,[uint32]123,$request))
+$clear=$clipboardType.GetField('clearTimer',$flags).GetValue($clipboard)
 Assert 'retention:successful-copy-still-schedules-clear' ($null -ne $clear -and $clear.IsEnabled)
-$clear.Stop();$program.GetField('clearTimer',$flags).SetValue($null,$null)
-[void](Call $program 'CompleteClipboardClear' $null @($true,[uint32]123,($request-1)))
-Assert 'retention:superseded-copy-not-cleared' ($null -eq $program.GetField('clearTimer',$flags).GetValue($null))
+$clear.Stop();$clipboardType.GetField('clearTimer',$flags).SetValue($clipboard,$null)
+[void](Call $clipboardType 'CompleteClipboardClear' $clipboard @($true,[uint32]123,($request-1)))
+Assert 'retention:superseded-copy-not-cleared' ($null -eq $clipboardType.GetField('clearTimer',$flags).GetValue($clipboard))
 $cfg.AutoClearSeconds=0
 $retention=$window.Content.FindName('txtHistoryRetention')
 Assert 'retention:record-page-default-visible' ($retention.Text -eq '10')
@@ -78,9 +128,9 @@ $window.Content.FindName('txtEmailPoll').Text='invalid'
 $retention.Text='20';Assert 'retention:independent-save' (Call $windowType 'SaveHistoryRetention' $window @())
 Assert 'retention:field-persisted' ((Call $cfgType 'Load' $null @($cfgPath,$true)).HistoryRetentionMinutes -eq 20)
 $retention.Text='-1';Assert 'retention:invalid-ui-rejected' (-not (Call $windowType 'SaveHistoryRetention' $window @()))
-Assert 'retention:invalid-ui-restored' ($retention.Text -eq '20')
+Assert 'retention:invalid-ui-draft-kept' ($retention.Text -eq '-1' -and $cfg.HistoryRetentionMinutes -eq 20)
 $retention.Text='30';[IO.File]::SetAttributes($cfgPath,[IO.FileAttributes]::ReadOnly)
-try{Assert 'retention:failed-setting-save-restored' (-not (Call $windowType 'SaveHistoryRetention' $window @()) -and $cfg.HistoryRetentionMinutes -eq 20 -and $retention.Text -eq '20')}finally{[IO.File]::SetAttributes($cfgPath,[IO.FileAttributes]::Normal)}
+try{Assert 'retention:failed-setting-save-keeps-draft' (-not (Call $windowType 'SaveHistoryRetention' $window @()) -and $cfg.HistoryRetentionMinutes -eq 20 -and $retention.Text -eq '30')}finally{[IO.File]::SetAttributes($cfgPath,[IO.FileAttributes]::Normal)}
 $window.Content.FindName('txtEmailPoll').Text='30'
 $application=New-Object Windows.Application;$application.ShutdownMode=[Windows.ShutdownMode]::OnExplicitShutdown
 $timer=New-Object Windows.Threading.DispatcherTimer;$timer.Interval=[TimeSpan]::FromMilliseconds(100)

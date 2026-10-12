@@ -25,8 +25,9 @@ namespace Codepass
     {
           // ---------- 左侧分类 ----------
 
-         void SelectSection(string section)
-         {
+          void SelectSection(string section)
+          {
+              activeSection = section;
              if (pageSet == null) return;
              bool history = section == "history";
              bool about = section == "about";
@@ -56,8 +57,10 @@ namespace Codepass
                {
                    if (settingsScroll != null) settingsScroll.ScrollToTop();
                     Border target = security ? cardNotify : email ? cardEmailStatus : cardGeneral;
-                  if (target != null) target.BringIntoView();
-              }
+                   if (target != null) target.BringIntoView();
+               }
+               if (history) RefreshHistory();
+               UpdateReceiveSummary();
          }
 
           static void SetNavState(Button button, bool selected)
@@ -130,275 +133,13 @@ namespace Codepass
              finally { loadingValues = false; }
          }
 
-        /// <summary>输入完成即应用（失焦、回车、勾选切换）；无效输入提示并还原为已保存值。</summary>
+        /// <summary>显式提交记录保留时间；验证失败保留草稿。</summary>
         bool SaveHistoryRetention()
         {
-            int minutes;
-            if (!int.TryParse(txtHistoryRetention.Text.Trim(), out minutes) || minutes < 0 || minutes > Config.MaximumHistoryRetentionMinutes)
-            {
-                txtHistoryRetention.Text = cfg.HistoryRetentionMinutes.ToString();
-                ShowToast("记录保留时间需在 0～43200 分钟之间，0 停用，已还原");
-                return false;
-            }
-            lock (Config.SaveGate)
-            {
-                if (minutes != cfg.HistoryRetentionMinutes)
-                {
-                    int previous = cfg.HistoryRetentionMinutes;
-                    cfg.HistoryRetentionMinutes = minutes;
-                    try { cfg.Save(cfgPath); }
-                    catch
-                    {
-                        cfg.HistoryRetentionMinutes = previous;
-                        txtHistoryRetention.Text = previous.ToString();
-                        ShowToast("记录清理设置保存失败，已还原，请检查文件权限");
-                        return false;
-                    }
-                }
-            }
-            Program.ApplyHistoryRetention();
-            return true;
+            return ApplySection(SettingsSection.Retention);
         }
 
-          bool ApplySettings()
-         {
-              if (applying || loadingValues || txtPort == null) return !settingsRecoveryRequired;
-             applying = true;
-             try
-            {
-            int port, mn, mx, cl, smsMaxLength;
-            if (!int.TryParse(txtPort.Text.Trim(), out port) || port < 1 || port > 65535)
-            {
-                 ShowToast("端口无效（1~65535），已还原");
-                 txtPort.Text = cfg.Port.ToString();
-                 return false;
-            }
-             if (!int.TryParse(txtMin.Text.Trim(), out mn) || mn < 1 || mn > 32
-                 || !int.TryParse(txtMax.Text.Trim(), out mx) || mx < 1 || mx > 32)
-             {
-                 ShowToast("验证码长度需在 1～32 之间，已还原");
-                  txtMin.Text = cfg.MinLen.ToString();
-                  txtMax.Text = cfg.MaxLen.ToString();
-                  return false;
-             }
-              if (mx < mn) { mx = mn; txtMax.Text = mx.ToString(); }
-              if (!int.TryParse(txtSmsMaxLength.Text.Trim(), out smsMaxLength)
-                  || smsMaxLength < 1 || smsMaxLength > Config.MaximumSmsMaxLength)
-              {
-                  txtSmsMaxLength.Text = cfg.SmsMaxLength.ToString();
-                  ShowToast("短信长度上限需在 1～10000 字符之间，已还原");
-                  return false;
-              }
-              if (!int.TryParse(txtClear.Text.Trim(), out cl) || cl < 0)
-              {
-                   ShowToast("自动清除需为不小于 0 的秒数，已还原");
-                   txtClear.Text = cfg.AutoClearSeconds.ToString();
-                   return false;
-             }
-
-              int emailPoll;
-              if (!int.TryParse(txtEmailPoll.Text.Trim(), out emailPoll) || emailPoll < 10 || emailPoll > 600)
-              {
-                  ShowToast("邮箱检查间隔需在 10～600 秒之间，已还原");
-                  txtEmailPoll.Text = cfg.EmailPollSeconds.ToString();
-                  return false;
-              }
-              string newEmailServer = txtEmailServer == null ? "" : txtEmailServer.Text.Trim();
-              string newEmailAccount = txtEmailAccount == null ? "" : txtEmailAccount.Text.Trim();
-               string newEmailAuth = fldEmailAuth == null ? "" : fldEmailAuth.Text.Trim();
-              string newEmailKeywords = txtEmailKeywords == null ? "" : txtEmailKeywords.Text;
-               string newEmailSenders = txtEmailSenders == null ? "" : txtEmailSenders.Text;
-               string normalizedKeywords, normalizedSenders, mailRuleError;
-               if (!MailRules.NormalizeLines(newEmailKeywords, out normalizedKeywords, out mailRuleError))
-               {
-                   txtEmailKeywords.Text = cfg.EmailKeywords;
-                   ShowToast("主题关键词无效：" + mailRuleError + "，已还原"); return false;
-               }
-                if (!MailRules.NormalizeSenders(newEmailSenders, out normalizedSenders, out mailRuleError))
-               {
-                   txtEmailSenders.Text = cfg.EmailSenders;
-                   ShowToast("发件人规则无效：" + mailRuleError + "，已还原"); return false;
-               }
-               newEmailKeywords = normalizedKeywords; newEmailSenders = normalizedSenders;
-               txtEmailKeywords.Text = newEmailKeywords; txtEmailSenders.Text = newEmailSenders;
-              bool newEmailEnabled = chkEmail != null && chkEmail.IsChecked == true;
-              bool newEmailJunk = chkEmailJunk != null && chkEmailJunk.IsChecked == true;
-              bool newEmailNotify = chkEmailNotify == null || chkEmailNotify.IsChecked == true;
-               bool newEmailAutoCopy = chkEmailAutoCopy == null || chkEmailAutoCopy.IsChecked == true;
-               bool newEmailSaveBody = chkEmailSaveBody != null && chkEmailSaveBody.IsChecked == true;
-               bool newQqPopup = chkQqPopup == null || chkQqPopup.IsChecked == true;
-               if (newEmailEnabled
-                   && (newEmailServer.Length == 0 || newEmailAccount.Length == 0
-                       || newEmailAuth.Length == 0
-                      || newEmailServer.IndexOf(' ') >= 0 || newEmailServer.IndexOf('/') >= 0
-                      || newEmailServer.IndexOf(':') >= 0))
-              {
-                  txtEmailServer.Text = cfg.EmailServer;
-                  txtEmailAccount.Text = cfg.EmailAccount;
-                  if (fldEmailAuth != null) fldEmailAuth.Text = cfg.EmailAuth;
-                  if (chkEmail != null) chkEmail.IsChecked = cfg.EmailEnabled;
-                  ShowToast("启用邮箱接收需要填写服务器、账号和授权码，已还原");
-                  return false;
-              }
-              string newToken = fldToken.Text.Trim();
-              string newPcIp = txtPcIp.Text.Trim();
-              if (cfg.PcIp.Length == 0 && autoPcIp.Length > 0 && newPcIp == autoPcIp) newPcIp = "";
-              string newNtfyServer = txtNtfyServer.Text.Trim();
-              string newNtfyTopic = txtNtfyTopic.Text.Trim();
-              string newNtfyToken = fldNtfyToken.Text.Trim();
-              string newFilterKeywords = txtFilterKeywords == null ? "" : txtFilterKeywords.Text;
-              string newFilterRegex = txtFilterRegex == null ? "" : txtFilterRegex.Text;
-              string filterError;
-              if (!CodeExtractor.ValidateFilters(newFilterKeywords, newFilterRegex, out filterError))
-              {
-                  if (txtFilterKeywords != null) txtFilterKeywords.Text = cfg.FilterKeywords;
-                  if (txtFilterRegex != null) txtFilterRegex.Text = cfg.FilterRegex;
-                  ShowToast("信息过滤规则无效：" + filterError);
-                  return false;
-              }
-             if (newPcIp.Length > 0)
-             {
-                  if (!IsUsablePcIp(newPcIp))
-                 {
-                     string restorePcIp = cfg.PcIp.Length > 0 ? cfg.PcIp : autoPcIp;
-                     txtPcIp.Text = restorePcIp;
-                     if (cfg.PcIp.Length == 0) autoPcIp = restorePcIp;
-                     ShowToast("电脑 IPv4 地址无效，已还原");
-                     return false;
-                 }
-             }
-             if (newNtfyServer.Length == 0 && newNtfyTopic.Length > 0)
-             {
-                 txtNtfyServer.Text = cfg.NtfyServer;
-                 ShowToast("启用 ntfy 主题时必须填写服务器地址，已还原");
-                 return false;
-             }
-              if (newNtfyServer.Length > 0)
-             {
-                 Uri ntfyUri;
-                  if (!Uri.TryCreate(newNtfyServer, UriKind.Absolute, out ntfyUri)
-                       || ntfyUri.Scheme != Uri.UriSchemeHttps
-                       || ntfyUri.Host.Length == 0 || ntfyUri.UserInfo.Length > 0)
-                  {
-                      txtNtfyServer.Text = cfg.NtfyServer;
-                      ShowToast("ntfy 服务器必须使用 HTTPS，已还原");
-                     return false;
-                 }
-              }
-             bool newShowTip = chkTip.IsChecked == true;
-            bool newStartup = chkStartup != null && chkStartup.IsChecked == true;
-             int newPrivacy = cmbPrivacy != null && cmbPrivacy.SelectedIndex >= 0 && cmbPrivacy.SelectedIndex <= 2 ? cmbPrivacy.SelectedIndex : 0;
-             int newEmailPrivacy = cmbEmailPrivacy != null && cmbEmailPrivacy.SelectedIndex >= 0 && cmbEmailPrivacy.SelectedIndex <= 2 ? cmbEmailPrivacy.SelectedIndex : 0;
-            bool newAutoLock = cfg.LockEnabled && chkAutoLock != null && chkAutoLock.IsChecked == true;
-            if (port == cfg.Port && newToken == cfg.Token && newPcIp == cfg.PcIp
-                && mn == cfg.MinLen && mx == cfg.MaxLen && cl == cfg.AutoClearSeconds
-                && smsMaxLength == cfg.SmsMaxLength
-                && newShowTip == cfg.ShowTip && newStartup == cfg.StartWithWindows
-                  && newPrivacy == cfg.PrivacyMode && newEmailPrivacy == cfg.EmailPrivacyMode && newNtfyServer == cfg.NtfyServer
-                   && newNtfyTopic == cfg.NtfyTopic && newNtfyToken == cfg.NtfyToken
-                  && newFilterKeywords == cfg.FilterKeywords && newFilterRegex == cfg.FilterRegex
-                  && newEmailServer == cfg.EmailServer && newEmailAccount == cfg.EmailAccount
-                   && newEmailAuth == cfg.EmailAuth && emailPoll == cfg.EmailPollSeconds
-                  && newEmailKeywords == cfg.EmailKeywords && newEmailSenders == cfg.EmailSenders
-                  && newEmailEnabled == cfg.EmailEnabled && newEmailJunk == cfg.EmailCheckJunk
-                   && newEmailNotify == cfg.EmailNotify && newEmailAutoCopy == cfg.EmailAutoCopy
-                   && newEmailSaveBody == cfg.EmailSaveBody
-                  && newQqPopup == cfg.QqPopupEnabled
-                 && newAutoLock == cfg.AutoLockEnabled
-                 && !Program.StartupSyncFailed && !settingsRecoveryRequired)
-                 {
-                 return true;
-             }
-
-              lock (Config.SaveGate)
-              {
-              bool recoveryWasRequired = settingsRecoveryRequired;
-              Config previous = new Config();
-             previous.CopyFrom(cfg);
-              bool startupChanged = previous.StartWithWindows != newStartup;
-               bool mailboxChanged = !string.Equals(cfg.EmailServer, newEmailServer, StringComparison.OrdinalIgnoreCase)
-                   || !string.Equals(cfg.EmailAccount, newEmailAccount, StringComparison.OrdinalIgnoreCase);
-               bool emailRulesChanged = cfg.EmailKeywords != newEmailKeywords || cfg.EmailSenders != newEmailSenders
-                   || cfg.MinLen != mn || cfg.MaxLen != mx;
-              if (mailboxChanged)
-              {
-                   cfg.EmailLastUid = cfg.EmailUidValidity = cfg.EmailLastUidJunk = cfg.EmailUidValidityJunk = 0;
-                   cfg.EmailMailboxState = "";
-                   cfg.EmailAuthEncRaw = "";
-                   cfg.EmailAuthUndecryptable = false;
-                   cfg.EmailPasswordRequired = false;
-              }
-
-             cfg.Port = port;
-            cfg.Token = newToken;
-            cfg.PcIp = newPcIp;
-            cfg.MinLen = mn;
-            cfg.MaxLen = mx;
-            cfg.SmsMaxLength = smsMaxLength;
-            cfg.AutoClearSeconds = cl;
-            cfg.ShowTip = newShowTip;
-             cfg.StartWithWindows = newStartup;
-             cfg.PrivacyMode = newPrivacy;
-             cfg.EmailPrivacyMode = newEmailPrivacy;
-            cfg.NtfyServer = newNtfyServer;
-              cfg.NtfyTopic = newNtfyTopic;
-              cfg.NtfyToken = newNtfyToken;
-              cfg.FilterKeywords = newFilterKeywords;
-              cfg.FilterRegex = newFilterRegex;
-              cfg.EmailServer = newEmailServer;
-              cfg.EmailAccount = newEmailAccount;
-               cfg.EmailAuth = newEmailAuth;
-              if (newEmailAuth.Length > 0)
-              {
-                  // 用户重新填写了授权码：清除“解密失败保留密文”的标记并恢复提示文字。
-                   cfg.EmailAuthUndecryptable = false;
-                   cfg.EmailAuthEncRaw = "";
-                   cfg.EmailPasswordRequired = false;
-                  UpdateEmailAuthHint();
-              }
-              cfg.EmailPollSeconds = emailPoll;
-              cfg.EmailKeywords = newEmailKeywords;
-              cfg.EmailSenders = newEmailSenders;
-              cfg.EmailEnabled = newEmailEnabled;
-              cfg.EmailCheckJunk = newEmailJunk;
-              cfg.EmailNotify = newEmailNotify;
-               cfg.EmailAutoCopy = newEmailAutoCopy;
-               cfg.EmailSaveBody = newEmailSaveBody;
-              cfg.QqPopupEnabled = newQqPopup;
-             cfg.AutoLockEnabled = newAutoLock;
-
-             bool startupAttempted = false;
-             bool configSaved = false;
-              try
-              {
-                  cfg.Save(cfgPath);
-                  configSaved = true;
-                 if (startupChanged || Program.StartupSyncFailed)
-                 {
-                      startupAttempted = true;
-                      Program.SetStartup(cfg.StartWithWindows);
-                  }
-                  settingsRecoveryRequired = false;
-                  // 邮箱 / QQ 弹窗设置即时生效：无需重启程序。
-                   Program.RefreshEmailWatchers();
-                   if (emailRulesChanged && Program.EmailConfigured()) EmailWatcher.RequestRecentCheck();
-                   UpdateEmailAuthHint();
-              }
-              catch (Exception ex)
-              {
-                  bool restored = RestoreSettings(previous, startupAttempted, configSaved);
-                  settingsRecoveryRequired = !restored || (!configSaved && recoveryWasRequired);
-                  Log.Write("apply settings failed: " + ex.GetType().Name);
-                  ShowToast(restored
-                      ? "保存失败：" + SettingsFailureReason(ex) + "；已还原，可重试或退出"
-                      : "恢复未完成：" + SettingsFailureReason(ex) + "；可重试或退出");
-                  return false;
-             }
-              return true;
-              }
-              }
-            finally { applying = false; }
-        }
+          bool ApplySettings() { return ApplySection(SettingsSection.All); }
 
          /// <summary>保存失败时恢复内存、界面、配置文件和已尝试同步的开机启动设置。</summary>
          bool RestoreSettings(Config previous, bool restoreStartup, bool restoreConfig = true)
@@ -451,7 +192,7 @@ namespace Codepass
               {
                   autoPcIp = "";
                   txtPcIp.Text = ips[0];
-                 ApplySettings();
+                 QueueSection(SettingsSection.Sms);
                  return;
              }
 
@@ -462,18 +203,20 @@ namespace Codepass
                  menu.Style = host.Resources["FlyoutMenu"] as Style;
                  menu.ItemContainerStyle = host.Resources["FlyoutItem"] as Style;
              }
+             Dictionary<string, string> labels = Program.LocalIpLabels();
              foreach (string ip in ips)
              {
                  MenuItem item = new MenuItem();
-                 item.Header = ip;
+                 string label;
+                 item.Header = ip + (labels.TryGetValue(ip, out label) ? "  ·  " + label : "");
                  string value = ip;
                  if (value == txtPcIp.Text) item.FontWeight = FontWeights.SemiBold;
                    item.Click += delegate
                    {
                        autoPcIp = "";
                        txtPcIp.Text = value;
-                      txtPcIp.CaretIndex = value.Length;
-                      ApplySettings();
+                       txtPcIp.CaretIndex = value.Length;
+                       QueueSection(SettingsSection.Sms);
                   };
                  menu.Items.Add(item);
              }
@@ -501,42 +244,9 @@ namespace Codepass
                  return;
              }
 
-             SetTestButton(btnTestPc, false, "测试中…");
+             if (pcTestCancel != null) { pcTestCancel.Cancel(); return; }
              string pcToken = fldToken == null ? "" : fldToken.Text.Trim();
-             ThreadPool.QueueUserWorkItem(delegate
-             {
-                 string result;
-                 try
-                 {
-                     HttpWebRequest request = (HttpWebRequest)WebRequest.Create("http://" + ip + ":" + port + "/health");
-                     request.Method = "GET";
-                     request.Timeout = 5000;
-                     request.ReadWriteTimeout = 5000;
-                     request.UserAgent = "codepass/1.0";
-                     request.Proxy = null;
-                     if (pcToken.Length > 0)
-                         request.Headers["X-Token"] = pcToken;
-                     using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                         result = response.StatusCode == HttpStatusCode.OK
-                             ? "已连接到 " + ip + ":" + port + "，HTTP 服务和令牌验证正常。"
-                             : "服务器已响应，但健康检查结果异常。";
-                 }
-                  catch (TimeoutException) { result = "连接超时，可能是 EasyTier 路由或 Windows 防火墙未放行。"; }
-                  catch (WebException ex)
-                  {
-                      HttpWebResponse response = ex.Response as HttpWebResponse;
-                      result = ex.Status == WebExceptionStatus.Timeout ? "连接超时，可能是 EasyTier 路由或 Windows 防火墙未放行。"
-                         : response == null ? "连接失败：" + ex.Message
-                         : "服务器返回 HTTP " + (int)response.StatusCode + "，请检查端口或访问令牌。";
-                 }
-                 catch (Exception ex) { result = "测试失败：" + ex.Message; }
-                 Dispatcher.BeginInvoke(new Action(delegate
-                 {
-                     SetTestButton(btnTestPc, true, "测试连通性");
-                     MessageBox.Show(this, result, "电脑地址测试", MessageBoxButton.OK,
-                         result.StartsWith("已连接") ? MessageBoxImage.Information : MessageBoxImage.Warning);
-                 }));
-             });
+             RunNetworkTest(false, "http://" + ip + ":" + port + "/health", pcToken);
          }
 
          void TestNtfyConnectivity()
@@ -551,41 +261,9 @@ namespace Codepass
                   MessageBox.Show(this, "请输入有效的 HTTPS 服务器地址。", "测试失败", MessageBoxButton.OK, MessageBoxImage.Warning);
                  return;
              }
-              SetTestButton(btnTestNtfy, false, "测试中…");
+              if (ntfyTestCancel != null) { ntfyTestCancel.Cancel(); return; }
              string ntfyToken = fldNtfyToken == null ? "" : fldNtfyToken.Text.Trim();
-             ThreadPool.QueueUserWorkItem(delegate
-             {
-                 string result;
-                 try
-                 {
-                     string target = server + (topic.Length == 0 ? "/" : "/" + topic + "/json");
-                      HttpWebRequest request = (HttpWebRequest)WebRequest.Create(target);
-                      request.AllowAutoRedirect = false;
-                     request.Method = "GET";
-                     request.Timeout = 5000;
-                     request.ReadWriteTimeout = 5000;
-                     request.UserAgent = "codepass/1.0";
-                     request.Proxy = null;
-                     if (ntfyToken.Length > 0)
-                         request.Headers["Authorization"] = "Bearer " + ntfyToken;
-                     using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
-                         result = "服务器可访问，HTTP " + (int)response.StatusCode + " " + response.StatusDescription
-                                + (topic.Length == 0 ? "。" : "，主题和鉴权可访问。 ");
-                 }
-                 catch (WebException ex)
-                 {
-                     HttpWebResponse response = ex.Response as HttpWebResponse;
-                     result = response == null ? "服务器访问失败：" + ex.Message
-                         : "服务器返回 HTTP " + (int)response.StatusCode + "，请检查主题或访问令牌。";
-                 }
-                 catch (Exception ex) { result = "测试失败：" + ex.Message; }
-                 Dispatcher.BeginInvoke(new Action(delegate
-                 {
-                     SetTestButton(btnTestNtfy, true, "测试连通性");
-                     MessageBox.Show(this, result, "ntfy 测试", MessageBoxButton.OK,
-                         result.StartsWith("服务器可访问") ? MessageBoxImage.Information : MessageBoxImage.Warning);
-                 }));
-             });
+             RunNetworkTest(true, server + (topic.Length == 0 ? "/" : "/" + Uri.EscapeDataString(topic) + "/json"), ntfyToken);
          }
 
          static void SetTestButton(Button button, bool enabled, string text)
@@ -595,8 +273,9 @@ namespace Codepass
              button.Content = text;
          }
 
-         void OnExport()
-         {
+          void OnExport()
+          {
+              FlushSettings();
              SaveFileDialog dialog = new SaveFileDialog();
              dialog.Title = "导出 codepass 设置";
              dialog.Filter = "配置文件 (*.ini)|*.ini|所有文件 (*.*)|*.*";
@@ -615,8 +294,9 @@ namespace Codepass
              catch (Exception ex) { MessageBox.Show(this, "导出失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error); }
          }
 
-         void OnImport()
-         {
+          void OnImport()
+          {
+              FlushSettings();
              OpenFileDialog dialog = new OpenFileDialog();
              dialog.Title = "导入 codepass 设置";
              dialog.Filter = "配置文件 (*.ini)|*.ini|所有文件 (*.*)|*.*";
@@ -719,7 +399,7 @@ namespace Codepass
          {
               if (txtPcIp == null) return;
              string ip = txtPcIp.Text.Trim();
-               if (!ApplySettings()) return;
+                if (!ApplySection(SettingsSection.Sms | SettingsSection.Ntfy | SettingsSection.SmsRules)) return;
                if (cfg.Token.Length == 0)
                {
                    ShowToast("请先设置随机访问令牌并重启程序，再复制手机端配置");
@@ -742,7 +422,7 @@ namespace Codepass
                  "MIN_LEN=" + ShellLiteral(txtMin.Text.Trim()) + "\r\n" +
                  "MAX_LEN=" + ShellLiteral(txtMax.Text.Trim()) + "\r\n";
             bool ok = false;
-            try { ok = Program.CopyManually(text, new WindowInteropHelper(this).Handle); } catch { }
+            try { ok = Program.Clipboard.CopyManually(text, new WindowInteropHelper(this).Handle); } catch { }
              MessageBox.Show(this,
                 ok ? text : "复制失败（剪贴板被占用），请重试。",
              ok ? "已复制到剪贴板" : "复制失败", MessageBoxButton.OK,

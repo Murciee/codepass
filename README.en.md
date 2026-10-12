@@ -37,7 +37,7 @@ Android SMS or email code → Windows → clipboard
 
 <table>
   <tr>
-    <td width="50%" align="center"><b>Code history</b><br><img src="assets/v1.0.4/history-search.png" width="100%" alt="History search, SMS and email filters, automatic cleanup"></td>
+    <td width="50%" align="center"><b>Code history</b><br><img src="assets/v1.0.6/history-search.png" width="100%" alt="History search, SMS and email filters, automatic cleanup"></td>
     <td width="50%" align="center"><b>Email settings</b><br><img src="assets/v1.0.4/email-status-narrow.png" width="100%" alt="Email connection and reception status"></td>
   </tr>
   <tr>
@@ -48,7 +48,7 @@ Android SMS or email code → Windows → clipboard
 
 ## Downloads
 
-Current Windows version: **v1.0.5**. Phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
+Current Windows version: **v1.0.6**. Phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
 
 | Asset | Purpose |
 | --- | --- |
@@ -80,7 +80,7 @@ Use one SMS forwarding option. Email reception is configured directly on Windows
 
 ### Email
 
-Open Email settings, select a provider, enter the account and IMAP authorization code/app password, test the connection and enable reception. Gmail setup is in [Gmail app passwords](docs/GMAIL_APP_PASSWORD.md).
+Open Email settings, select a provider, enter the account and IMAP authorization code/app password, test the connection, enable reception and click Save connection. Testing does not save or enable a draft; changed inputs invalidate previous results. Gmail setup is in [Gmail app passwords](docs/GMAIL_APP_PASSWORD.md).
 
 Closing the window hides it to the tray; quit from the tray menu.
 
@@ -94,7 +94,11 @@ Closing the window hides it to the tray; quit from the tray menu.
 | Privacy settings | SMS/email notification content, passcode lock, auto-lock |
 | About | Update check, preview and export redacted diagnostics |
 
-Settings save automatically. Restart after changing network listening or ntfy; email settings apply immediately. History cleanup never deletes mailbox messages.
+Ordinary settings save by section; invalid drafts remain editable. Email credentials use the explicit Save connection action. Restart after changing network listening or ntfy; saved email settings apply immediately. History cleanup never deletes mailbox messages. Disabling timed cleanup still keeps at most 100 records; retention is not the code's expiry time.
+
+History includes a latest-code card, receiver status and keyboard-accessible Copy/Original actions. Use Ctrl+F to search and Tab/Enter to operate. The tray can pause automatic copying for 15 minutes while continuing to receive. Send a test message from the phone after checking connectivity to verify the complete route.
+
+ntfy reconnects request up to ten minutes of cached messages when available. The updated root script uses stable SMS IDs across transports; legacy plain-text clients use a two-minute identical-body deduplication window.
 
 ## Development
 

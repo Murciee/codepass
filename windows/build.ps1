@@ -103,10 +103,10 @@ if ($SkipPackage) { Write-Host "OK -> $out (package skipped)"; return }
 # contain tokens/history-related settings from a previous local run. The
 # application creates its default configuration in memory on first launch.
 
-# Package the portable build into release\codepass-windows.zip.
+# Package the portable build into release\v<version>\codepass-windows.zip.
 # Entries use '/' separators: Compress-Archive on Windows PowerShell 5.1 writes
 # '\' which non-Windows unzip tools treat as literal filename characters.
-$releaseDir = if ([string]::IsNullOrWhiteSpace($ReleaseDirectory)) { Join-Path $root '..\release' } else { [IO.Path]::GetFullPath($ReleaseDirectory) }
+$releaseDir = if ([string]::IsNullOrWhiteSpace($ReleaseDirectory)) { Join-Path $root ('..\release\v' + $version) } else { [IO.Path]::GetFullPath($ReleaseDirectory) }
 $zipOut = Join-Path $releaseDir 'codepass-windows.zip'
 $zipTmp = "$zipOut.tmp"
 $packageAllow = @(

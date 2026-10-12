@@ -37,7 +37,7 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 
 <table>
   <tr>
-    <td width="50%" align="center"><b>验证码记录</b><br><img src="assets/v1.0.4/history-search.png" width="100%" alt="记录搜索、短信与邮件筛选、自动清理"></td>
+    <td width="50%" align="center"><b>验证码记录</b><br><img src="assets/v1.0.6/history-search.png" width="100%" alt="记录搜索、短信与邮件筛选、自动清理"></td>
     <td width="50%" align="center"><b>邮箱设置</b><br><img src="assets/v1.0.4/email-status-narrow.png" width="100%" alt="邮箱连接与接收状态"></td>
   </tr>
   <tr>
@@ -48,7 +48,7 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 
 ## 下载
 
-当前 Windows 版本为 **v1.0.5**，手机模块保持 v1.0.3，无需重新安装。前往 [GitHub Releases](https://github.com/Murciee/codepass/releases/latest) 下载。
+当前 Windows 版本为 **v1.0.6**，手机模块保持 v1.0.3，无需重新安装。前往 [GitHub Releases](https://github.com/Murciee/codepass/releases/latest) 下载。
 
 | 文件 | 用途 |
 | --- | --- |
@@ -80,7 +80,7 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 
 ### 邮箱
 
-打开「邮箱设置」，选择服务，填写账号与 IMAP 授权码/应用密码，测试连接后启用。可设置主题关键词、发件人规则和是否保存正文。Gmail 见 [应用专用密码设置](docs/GMAIL_APP_PASSWORD.md)。
+打开「邮箱设置」，选择服务，填写账号与 IMAP 授权码/应用密码，测试连接、勾选启用后点击「保存连接」。测试不会保存或启用草稿；修改输入后需重新测试。可设置主题关键词、发件人规则和是否保存正文。Gmail 见 [应用专用密码设置](docs/GMAIL_APP_PASSWORD.md)。
 
 关闭窗口会隐藏到托盘；完全退出使用托盘菜单。
 
@@ -94,7 +94,11 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 | 隐私设置 | 短信/邮件通知内容、密码锁、自动锁定 |
 | 关于 | 检查更新、预览并导出脱敏诊断 |
 
-设置自动保存。网络监听和 ntfy 变更后重启；邮箱设置即时生效。记录清理只影响本地记录，不删除邮箱邮件。
+普通设置分区自动保存，校验失败保留输入并提示；邮箱连接信息点击「保存连接」提交。网络监听和 ntfy 变更后重启；邮箱保存后即时生效。记录清理只影响本地记录，不删除邮箱邮件；停用时间清理后仍最多保留 100 条，保留时间不代表验证码有效期。
+
+记录页提供最新验证码、接收状态、复制和原文按钮；`Ctrl+F` 搜索，`Tab` 选择操作，`Enter` 执行。托盘菜单可暂停自动复制 15 分钟，期间继续收录。连接测试通过后，仍需从手机发送测试短信完成端到端验证。
+
+ntfy 重连会在服务器缓存允许的范围内补收最近 10 分钟消息；新 root 脚本携带稳定短信标识，两通道重复投递合并。旧文本客户端按相同正文的两分钟窗口去重。
 
 ## 开发维护
 

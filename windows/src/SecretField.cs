@@ -28,6 +28,10 @@ namespace Codepass
         readonly TextBox plain = new TextBox();
         readonly Button toggle = new Button();
         bool revealed;
+        bool synchronizing;
+        Panel host;
+        int focusVersion;
+        public event Action Changed;
 
         public event Action Committed;
         public SecretField(Style passwordStyle, Style textStyle, Style buttonStyle, double width)
@@ -47,10 +51,11 @@ namespace Codepass
             toggle.VerticalAlignment = VerticalAlignment.Center;
 
             toggle.Click += delegate { revealed = !revealed; Apply(); };
-            masked.PasswordChanged += delegate { if (!revealed) plain.Text = masked.Password; };
-            plain.TextChanged += delegate { if (revealed) masked.Password = plain.Text; };
-             masked.LostFocus += delegate { if (Committed != null) Committed(); };
-             plain.LostFocus += delegate { if (Committed != null) Committed(); };
+            masked.PasswordChanged += delegate { if (!synchronizing && !revealed) { plain.Text = masked.Password; if (Changed != null) Changed(); } };
+            plain.TextChanged += delegate { if (!synchronizing && revealed) { masked.Password = plain.Text; if (Changed != null) Changed(); } };
+             masked.LostKeyboardFocus += CommitWhenLeaving;
+             plain.LostKeyboardFocus += CommitWhenLeaving;
+             toggle.LostKeyboardFocus += CommitWhenLeaving;
              KeyEventHandler onEnter = delegate(object s, KeyEventArgs e) { if (e.Key == Key.Return && Committed != null) Committed(); };
              masked.KeyDown += onEnter;
              plain.KeyDown += onEnter;
@@ -62,20 +67,45 @@ namespace Codepass
             set
             {
                 string v = value ?? "";
-                masked.Password = v;
-                plain.Text = v;
+                bool changed = Text != v;
+                synchronizing = true;
+                try { masked.Password = v; plain.Text = v; } finally { synchronizing = false; }
+                if (changed && Changed != null) Changed();
             }
         }
 
         public void Attach(Panel host)
         {
-            host.Children.Add(masked);
-            host.Children.Add(plain);
-            host.Children.Add(toggle);
+            this.host = host;
+            Grid layout = new Grid { Tag = "FieldActions", HorizontalAlignment = HorizontalAlignment.Stretch };
+            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            layout.ColumnDefinitions.Add(new ColumnDefinition());
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Grid input = new Grid();
+            input.SetResourceReference(FrameworkElement.WidthProperty, "SettingsInputWidth");
+            masked.Width = plain.Width = double.NaN;
+            input.Children.Add(masked); input.Children.Add(plain); layout.Children.Add(input);
+            toggle.HorizontalAlignment = HorizontalAlignment.Left;
+            Grid.SetColumn(toggle, 1); layout.Children.Add(toggle);
+            host.Children.Add(layout);
+            System.Windows.Automation.AutomationProperties.SetName(masked, host.Name == "emailAuthHost" ? "邮箱授权码" : "访问令牌");
+            System.Windows.Automation.AutomationProperties.SetName(plain, host.Name == "emailAuthHost" ? "邮箱授权码" : "访问令牌");
+        }
+        void CommitWhenLeaving(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            int version = ++focusVersion;
+            masked.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
+            {
+                if (version == focusVersion && host != null && !host.IsKeyboardFocusWithin && Committed != null) Committed();
+            }));
         }
 
         void Apply()
         {
+            synchronizing = true;
+            try
+            {
             if (revealed)
             {
                 plain.Text = masked.Password;
@@ -93,6 +123,8 @@ namespace Codepass
                 toggle.Content = "显示";
                 masked.Focus();
             }
+            }
+            finally { synchronizing = false; }
         }
     }
 }

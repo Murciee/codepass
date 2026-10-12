@@ -7,13 +7,13 @@ using System;
 using System.Reflection;
 using System.Threading;
 public static class SmsTransactionProbe {
-    public static bool InvokeAcrossRollback(MethodInfo incoming, object config, FieldInfo limit, object gate, string text, int transient, int restored) {
+    public static bool InvokeAcrossRollback(MethodInfo incoming, object delivery, object config, FieldInfo limit, object gate, string text, int transient, int restored) {
         Exception failure = null;
         bool blocked;
         using (ManualResetEvent entered = new ManualResetEvent(false)) {
             Thread worker = new Thread(delegate() {
                 entered.Set();
-                try { incoming.Invoke(null, new object[] { text, "http", "Synthetic", false, false, false }); }
+                try { incoming.Invoke(delivery, new object[] { text, "http", "Synthetic", false, false, false }); }
                 catch (Exception ex) { failure = ex; }
             });
             worker.IsBackground = true;
@@ -37,6 +37,7 @@ $flags=[Reflection.BindingFlags]'Public,NonPublic,Instance,Static'
 $configType=$asm.GetType('Codepass.Config')
 $windowType=$asm.GetType('Codepass.MainWindow')
 $programType=$asm.GetType('Codepass.Program')
+$delivery=$programType.GetField('Incoming',$flags).GetValue($null); $deliveryType=$delivery.GetType()
 $historyType=$asm.GetType('Codepass.History')
 $testRoot=if($FixtureDirectory) { [IO.Path]::GetFullPath($FixtureDirectory) } else { Join-Path $PSScriptRoot ('..\build\switch-sms-fixtures-'+[Guid]::NewGuid().ToString('N')) }
 New-Item -ItemType Directory -Path $testRoot | Out-Null
@@ -91,46 +92,46 @@ foreach($invalid in @('0','-1','10001','bad')) {
 $cfg.SmsMaxLength=0
 Assert 'config:invalid-save-rejected' (Rejected { $cfg.Save($roundtripPath) })
 $limitMethod='SmsExceedsLengthLimit'
-Assert 'length:500-accepted' (-not (Call $programType $limitMethod $null @(('x'*500),500)))
-Assert 'length:501-rejected' (Call $programType $limitMethod $null @(('x'*501),500))
-Assert 'length:chinese-characters-not-bytes' (-not (Call $programType $limitMethod $null @((([string][char]0x4E2D)*500),500)))
+Assert 'length:500-accepted' (-not (Call $deliveryType $limitMethod $null @(('x'*500),500)))
+Assert 'length:501-rejected' (Call $deliveryType $limitMethod $null @(('x'*501),500))
+Assert 'length:chinese-characters-not-bytes' (-not (Call $deliveryType $limitMethod $null @((([string][char]0x4E2D)*500),500)))
 $emoji=[char]::ConvertFromUtf32(0x1F600)
-Assert 'length:emoji-one-character' (-not (Call $programType $limitMethod $null @((($emoji*499)+'a'),500)))
-Assert 'length:emoji-over-boundary' (Call $programType $limitMethod $null @((($emoji*500)+'a'),500))
-Assert 'length:spaces-and-newlines-counted' (Call $programType $limitMethod $null @(('x'*499+"`r`n"),500))
-Assert 'length:null-safe' (-not (Call $programType $limitMethod $null @($null,500)))
-Assert 'length:invalid-limit-falls-back' (Call $programType $limitMethod $null @(('x'*501),0))
+Assert 'length:emoji-one-character' (-not (Call $deliveryType $limitMethod $null @((($emoji*499)+'a'),500)))
+Assert 'length:emoji-over-boundary' (Call $deliveryType $limitMethod $null @((($emoji*500)+'a'),500))
+Assert 'length:spaces-and-newlines-counted' (Call $deliveryType $limitMethod $null @(('x'*499+"`r`n"),500))
+Assert 'length:null-safe' (-not (Call $deliveryType $limitMethod $null @($null,500)))
+Assert 'length:invalid-limit-falls-back' (Call $deliveryType $limitMethod $null @(('x'*501),0))
 
 $smsCfg=NewConfig; $smsCfg.SmsMaxLength=500
 $programType.GetField('cfg',$flags).SetValue($null,$smsCfg)
 $historyPath=Join-Path $testRoot 'history.txt'
 [void](Call $historyType 'Init' $null @($historyPath))
 $short='verification code 123456'; $exact=$short+('x'*(500-$short.Length)); $tooLong=$exact+'x'
-[void](Call $programType 'HandleIncoming' $null @($exact,'http','Synthetic',$false,$false,$false))
+[void](Call $deliveryType 'HandleIncoming' $delivery @($exact,'http','Synthetic',$false,$false,$false))
 Assert 'http:exact-limit-recorded' ((Snapshot).Count -eq 1)
 Assert 'http:raw-not-truncated' ((Snapshot)[0].Raw.Length -eq 500)
 $latest=(Call $programType 'GetLatestReceipt' $null @()).Code
-[void](Call $programType 'HandleIncoming' $null @($tooLong,'http','Synthetic',$false,$false,$false))
+[void](Call $deliveryType 'HandleIncoming' $delivery @($tooLong,'http','Synthetic',$false,$false,$false))
 Assert 'http:over-limit-not-recorded' ((Snapshot).Count -eq 1)
 Assert 'http:over-limit-latest-unchanged' ((Call $programType 'GetLatestReceipt' $null @()).Code -eq $latest)
-[void](Call $programType 'HandleIncoming' $null @($tooLong,'ntfy','Synthetic',$false,$false,$false))
+[void](Call $deliveryType 'HandleIncoming' $delivery @($tooLong,'ntfy','Synthetic',$false,$false,$false))
 Assert 'ntfy:over-limit-not-recorded' ((Snapshot).Count -eq 1)
 $smsCfg.SmsMaxLength=600
-[void](Call $programType 'HandleIncoming' $null @($tooLong,'ntfy','Synthetic',$false,$false,$false))
+[void](Call $deliveryType 'HandleIncoming' $delivery @($tooLong,'ntfy','Synthetic',$false,$false,$false))
 Assert 'ntfy:adjusted-limit-effective' ((Snapshot).Count -eq 2)
-$incoming=$programType.GetMethods($flags) | Where-Object { $_.Name -eq 'HandleIncoming' -and $_.GetParameters().Count -eq 6 } | Select-Object -First 1
+$incoming=$deliveryType.GetMethods($flags) | Where-Object { $_.Name -eq 'HandleIncoming' -and $_.GetParameters().Count -eq 6 } | Select-Object -First 1
 $lengthField=$configType.GetField('SmsMaxLength',$flags)
 $saveGate=$configType.GetField('SaveGate',$flags).GetValue($null)
 $smsCfg.SmsMaxLength=500
 $beforeConcurrent=(Snapshot).Count
-$blocked=[SmsTransactionProbe]::InvokeAcrossRollback($incoming,$smsCfg,$lengthField,$saveGate,$tooLong,10000,500)
+$blocked=[SmsTransactionProbe]::InvokeAcrossRollback($incoming,$delivery,$smsCfg,$lengthField,$saveGate,$tooLong,10000,500)
 Assert 'concurrency:temporary-higher-limit-waits' $blocked
 Assert 'concurrency:rollback-higher-limit-not-recorded' ((Snapshot).Count -eq $beforeConcurrent)
-$blocked=[SmsTransactionProbe]::InvokeAcrossRollback($incoming,$smsCfg,$lengthField,$saveGate,$exact,50,500)
+$blocked=[SmsTransactionProbe]::InvokeAcrossRollback($incoming,$delivery,$smsCfg,$lengthField,$saveGate,($exact.Replace('123456','123457')),50,500)
 Assert 'concurrency:temporary-lower-limit-waits' $blocked
 Assert 'concurrency:rollback-lower-limit-not-dropped' ((Snapshot).Count -eq $beforeConcurrent+1)
 $smsCfg.SmsMaxLength=50
-[void](Call $programType 'HandleIncoming' $null @($tooLong,'email','synthetic@example.com',$false,$false,$true))
+[void](Call $deliveryType 'HandleIncoming' $delivery @($tooLong,'email','synthetic@example.com',$false,$false,$true))
 Assert 'email:unaffected-by-sms-limit' ((Snapshot).Count -eq $beforeConcurrent+2 -and (Snapshot)[0].Channel -eq 'email')
 
 $uiCfg=NewConfig; $uiCfg.SmsMaxLength=500
@@ -145,9 +146,10 @@ Assert 'ui:length-save' (Call $windowType 'ApplySettings' $window @())
 Assert 'ui:length-persisted' ($uiCfg.SmsMaxLength -eq 650 -and (Call $configType 'Load' $null @($uiPath)).SmsMaxLength -eq 650)
 (Element $window 'txtSmsMaxLength').Text='0'
 Assert 'ui:length-invalid-rejected' (-not (Call $windowType 'ApplySettings' $window @()))
-Assert 'ui:length-invalid-restored' ((Element $window 'txtSmsMaxLength').Text -eq '650' -and $uiCfg.SmsMaxLength -eq 650)
+Assert 'ui:length-invalid-draft-kept' ((Element $window 'txtSmsMaxLength').Text -eq '0' -and $uiCfg.SmsMaxLength -eq 650)
 (Element $window 'txtSmsMaxLength').Text='10001'
 Assert 'ui:length-upper-limit-rejected' (-not (Call $windowType 'ApplySettings' $window @()))
+(Element $window 'txtSmsMaxLength').Text='650'
 [void](Call $windowType 'SelectSection' $window @('security'))
 $privacyText=[string][char]0x9690+[char]0x79C1+[char]0x8BBE+[char]0x7F6E
 Assert 'privacy:nav-renamed' ((Element $window 'navSecurity').Content -eq $privacyText)
@@ -174,6 +176,7 @@ $programType.GetField('cfg',$flags).SetValue($null,$uiCfg.PSObject.BaseObject)
 $providers=Element $window 'cmbEmailProvider'
 foreach($index in @(1,2,3,4,0)) {
     $providers.SelectedIndex=$index
+    Assert ('switch:provider-'+$index+'-explicit-save') (Call $windowType 'ApplySettings' $window @())
     $expected=@('imap.qq.com','imap.163.com','imap.126.com','imap.gmail.com','outlook.office365.com')[$index]
     Assert ('switch:provider-'+$index+'-saved') ($uiCfg.EmailServer -eq $expected -and (Call $configType 'Load' $null @($uiPath)).EmailServer -eq $expected)
     Assert ('switch:provider-'+$index+'-no-recovery-lock') (-not (GetPrivate $window 'settingsRecoveryRequired'))
@@ -183,6 +186,8 @@ $uiCfg.EmailEnabled=$true; $uiCfg.EmailAccount='fixture@example.com'; $uiCfg.Ema
 $uiCfg.EmailAuthEncRaw='old-undecipherable-fixture'; $uiCfg.EmailAuthUndecryptable=$true
 [void](Call $windowType 'LoadValues' $window @())
 $providers.SelectedIndex=1
+Assert 'switch:provider-draft-not-yet-applied' ($uiCfg.EmailServer -eq 'imap.qq.com')
+[void](Call $windowType 'ApplySettings' $window @())
 Assert 'switch:old-reception-paused' (-not $uiCfg.EmailEnabled)
 Assert 'switch:old-credential-cleared' ($uiCfg.EmailAuth.Length -eq 0)
 Assert 'switch:old-ciphertext-cleared' ($uiCfg.EmailAuthEncRaw.Length -eq 0 -and -not $uiCfg.EmailAuthUndecryptable)
@@ -193,11 +198,12 @@ $baseline=[IO.File]::ReadAllBytes($uiPath)
 try {
     $beforeServer=$uiCfg.EmailServer; $beforeIndex=$providers.SelectedIndex
     $providers.SelectedIndex=3
+    Assert 'save:readonly-save-fails' (-not (Call $windowType 'ApplySettings' $window @()))
     Assert 'save:readonly-original-preserved' ([Convert]::ToBase64String([IO.File]::ReadAllBytes($uiPath)) -eq [Convert]::ToBase64String($baseline))
     Assert 'save:readonly-memory-restored' ($uiCfg.EmailServer -eq $beforeServer)
-    Assert 'save:readonly-provider-restored' ($providers.SelectedIndex -eq $beforeIndex)
-    Assert 'save:readonly-does-not-lock-recovery' (-not (GetPrivate $window 'settingsRecoveryRequired'))
-    Assert 'save:readonly-error-classified' ((GetPrivate $window 'toastText').Text.Length -gt 0)
+    Assert 'save:readonly-provider-draft-kept' ($providers.SelectedIndex -eq 3)
+    Assert 'save:readonly-retry-state-present' (GetPrivate $window 'settingsRecoveryRequired')
+    Assert 'save:readonly-error-classified' ((Element $window 'lblSettingsFeedback').Text.Length -gt 0)
     SetPrivate $window 'settingsRecoveryRequired' $true
     Assert 'save:existing-recovery-retry-fails' (-not (Call $windowType 'ApplySettings' $window @()))
     Assert 'save:existing-recovery-kept-on-failure' (GetPrivate $window 'settingsRecoveryRequired')
@@ -205,6 +211,7 @@ try {
 Assert 'save:recovery-retry-after-unlock-succeeds' (Call $windowType 'ApplySettings' $window @())
 Assert 'save:recovery-cleared-after-unlock' (-not (GetPrivate $window 'settingsRecoveryRequired'))
 $providers.SelectedIndex=3
+[void](Call $windowType 'ApplySettings' $window @())
 Assert 'save:retry-after-readonly-cleared' ($uiCfg.EmailServer -eq 'imap.gmail.com')
 SetPrivate $window 'settingsRecoveryRequired' $true
 Assert 'save:same-values-retry-recovery' (Call $windowType 'ApplySettings' $window @())
@@ -212,10 +219,12 @@ Assert 'save:same-values-clears-old-lock' (-not (GetPrivate $window 'settingsRec
 $held=[IO.File]::Open($uiPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 try {
     $providers.SelectedIndex=2
+    Assert 'save:sharing-failure-rejected' (-not (Call $windowType 'ApplySettings' $window @()))
     Assert 'save:sharing-failure-memory-restored' ($uiCfg.EmailServer -eq 'imap.gmail.com')
-    Assert 'save:sharing-failure-no-lock' (-not (GetPrivate $window 'settingsRecoveryRequired'))
+    Assert 'save:sharing-failure-retry-available' (GetPrivate $window 'settingsRecoveryRequired')
 } finally { $held.Dispose() }
 $providers.SelectedIndex=2
+[void](Call $windowType 'ApplySettings' $window @())
 Assert 'save:retry-after-sharing-release' ($uiCfg.EmailServer -eq 'imap.126.com')
 # A persistent failure must not cancel ExitApp / tray exit.
 [IO.File]::SetAttributes($uiPath,[IO.FileAttributes]::ReadOnly)

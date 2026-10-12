@@ -24,6 +24,7 @@ namespace Codepass
     sealed partial class MainWindow
     {
         // ---------- 记录 ----------
+        ContextMenu historyActionsMenu;
 
         void SelectHistoryChannel(string channel)
         {
@@ -35,6 +36,10 @@ namespace Codepass
         public void RefreshHistory()
         {
             if (listHost == null) return;
+            CloseHistoryActions();
+            historyDirty = false;
+            if (historyRefreshTimer != null) historyRefreshTimer.Stop();
+            double offset = historyScroll == null ? 0 : historyScroll.VerticalOffset;
             listHost.Children.Clear();
             selectedRow = null;
             int smsCount = 0, emailCount = 0;
@@ -60,29 +65,37 @@ namespace Codepass
                     : historyChannel == "email" ? "暂无邮箱验证码记录" : historyChannel == "sms" ? "暂无短信验证码记录" : "暂无验证码记录";
                 lblHistoryEmpty.Visibility = listHost.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             }
+            if (historyScroll != null) historyScroll.ScrollToVerticalOffset(offset);
+            UpdateReceiveSummary();
+            Button news = Find<Button>((FrameworkElement)Content, "btnNewRecords");
+            if (news != null && offset <= 1) news.Visibility = Visibility.Collapsed;
         }
 
         Border BuildRow(HistoryItem it)
         {
             Grid g = new Grid();
-            AddCol(g, 128, false);
+            AddCol(g, 112, false);
             AddCol(g, 1, true);
             AddCol(g, 100, false);
             AddCol(g, 2, true);
+            AddCol(g, 72, false);
 
             g.Children.Add(Cell(it.Time, 0, FgBody, false));
-            TextBlock senderCell = Cell(it.Source, 1, FgBody, false);
+            TextBlock senderCell = Cell((it.Channel == "email" ? "邮件 · " : "短信 · ") + it.Source, 1, FgBody, false);
             senderCell.ToolTip = String.IsNullOrEmpty(it.Source) ? null : it.Source;
             g.Children.Add(senderCell);
-            TextBlock codeCell = Cell(it.Code, 2, AccentTx, true);
+            HistoryItem latest = History.LatestUnexpiredRecord(cfg.HistoryRetentionMinutes, DateTime.UtcNow);
+            Button codeCell = new Button { Content = it.Code, Foreground = object.ReferenceEquals(it, latest) ? AccentTx : FgBody, FontWeight = FontWeights.SemiBold,
+                Style = ((FrameworkElement)Content).Resources["SecondaryBtn"] as Style, Margin = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(codeCell, 2);
+            System.Windows.Automation.AutomationProperties.SetName(codeCell, "复制此条验证码");
             g.Children.Add(codeCell);
               TextBlock rawCell = Cell(string.IsNullOrEmpty(it.Raw) && it.Channel == "email" ? "未保存正文" : it.Raw, 3, FgFaint, false);
-             rawCell.ToolTip = new ToolTip
-             {
-                 MaxWidth = 560,
-                 Content = new ScrollViewer { MaxHeight = 320, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                     Content = new TextBlock { Text = HistoryRawText(it), TextWrapping = TextWrapping.Wrap, MaxWidth = 520 } }
-             };
+              rawCell.ToolTip = "查看原文";
+              rawCell.ToolTipOpening += delegate
+              {
+                  EnsureRawTooltip(rawCell, it);
+              };
              ToolTipService.SetInitialShowDelay(rawCell, 300);
              ToolTipService.SetShowDuration(rawCell, 30000);
              rawCell.Background = Brushes.Transparent;
@@ -93,7 +106,13 @@ namespace Codepass
                  ShowHistoryRaw(it);
                  args.Handled = true;
              };
-             g.Children.Add(rawCell);
+              g.Children.Add(rawCell);
+            Button actions = new Button { Content = "操作 ▾", Style = ((FrameworkElement)Content).Resources["SecondaryBtn"] as Style,
+                Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(actions, 4); actions.Click += delegate { ShowHistoryActions(it, actions); };
+            System.Windows.Automation.AutomationProperties.SetName(actions, "记录操作：查看原文或删除此条");
+            actions.ToolTip = "查看原文或删除这条记录";
+            g.Children.Add(actions);
 
             Border row = new Border();
             row.Height = 40;
@@ -107,13 +126,13 @@ namespace Codepass
             string code = it.Code;
             codeCell.Cursor = Cursors.Hand;
             codeCell.ToolTip = it.CanBeLatest ? "单击复制验证码" : "仅历史：复查/首次补查不更新最新验证码；仍可单击手动复制";
-            codeCell.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
+            codeCell.Click += delegate(object s, RoutedEventArgs e)
             {
-                if (string.IsNullOrEmpty(code)) return;
+                if (string.IsNullOrEmpty(code) || it.IsDeleted || lockOverlay.Visibility == Visibility.Visible) return;
                 // 只复制验证码；点击“原文”等区域不再占用剪贴板（避免点击卡顿）。
                 try
                 {
-                    if (Program.CopyManually(code, new WindowInteropHelper(this).Handle)) ShowToast("已复制验证码 " + code);
+                    if (Program.Clipboard.CopyManually(code, new WindowInteropHelper(this).Handle)) ShowToast("已复制验证码 " + code);
                     else ShowToast("复制失败，剪贴板被占用，请重试");
                 }
                 catch { ShowToast("复制失败，剪贴板被占用，请重试"); }
@@ -129,12 +148,56 @@ namespace Codepass
             return row;
         }
 
+        void ShowHistoryActions(HistoryItem item, Button anchor)
+        {
+            if (item.IsDeleted || lockOverlay.Visibility == Visibility.Visible) return;
+            CloseHistoryActions();
+            FrameworkElement root = (FrameworkElement)Content;
+            ContextMenu menu = new ContextMenu { Style = root.Resources["FlyoutMenu"] as Style,
+                ItemContainerStyle = root.Resources["FlyoutItem"] as Style, PlacementTarget = anchor, Placement = PlacementMode.Bottom };
+            MenuItem view = new MenuItem { Header = "查看原文" };
+            view.Click += delegate { CloseHistoryActions(); ShowHistoryRaw(item); };
+            MenuItem remove = new MenuItem { Header = "删除此条" };
+            remove.Click += delegate { CloseHistoryActions(); DeleteHistoryRecord(item); };
+            menu.Items.Add(view); menu.Items.Add(remove);
+            menu.Closed += delegate { if (historyActionsMenu == menu) historyActionsMenu = null; };
+            historyActionsMenu = menu;
+            menu.IsOpen = true;
+        }
+
+        void CloseHistoryActions()
+        {
+            ContextMenu menu = historyActionsMenu;
+            historyActionsMenu = null;
+            if (menu != null) menu.IsOpen = false;
+        }
+
+        void DeleteHistoryRecord(HistoryItem item)
+        {
+            if (lockOverlay.Visibility == Visibility.Visible) return;
+            try
+            {
+                bool removed = History.Remove(item);
+                RefreshHistory();
+                ShowToast(removed ? "已删除这条记录" : "这条记录已不存在");
+                if (txtHistorySearch != null) txtHistorySearch.Focus();
+            }
+            catch (IOException) { ShowToast("删除失败，原记录已保留；请先解决历史保存错误"); }
+        }
+
         static void AddCol(Grid g, double width, bool star)
         {
             ColumnDefinition c = new ColumnDefinition();
             if (star) c.Width = new GridLength(width > 0 ? width : 1, GridUnitType.Star);
             else c.Width = new GridLength(width);
             g.ColumnDefinitions.Add(c);
+        }
+        static void EnsureRawTooltip(TextBlock cell, HistoryItem item)
+        {
+            if (cell.ToolTip is ToolTip) return;
+            cell.ToolTip = new ToolTip { MaxWidth = 560, Content = new ScrollViewer { MaxHeight = 320,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = new TextBlock { Text = HistoryRawText(item), TextWrapping = TextWrapping.Wrap, MaxWidth = 520 } } };
         }
 
         static TextBlock Cell(string text, int col, Brush fg, bool bold)
@@ -212,15 +275,20 @@ namespace Codepass
 
         void ShowHistoryRaw(HistoryItem item)
         {
-            if (lockOverlay != null && lockOverlay.Visibility == Visibility.Visible) return;
+            if (item.IsDeleted || (lockOverlay != null && lockOverlay.Visibility == Visibility.Visible)) return;
             Window dialog = CreateHistoryRawWindow(item);
             dialog.ShowDialog();
         }
 
         public void OnNewRecord(HistoryItem it)
         {
-            // 另一分类新增记录也可能淘汰当前分类的最旧记录，始终以历史快照刷新。
-            RefreshHistory();
+            UpdateReceiveSummary();
+            if (historyScroll != null && historyScroll.VerticalOffset > 1)
+            {
+                Button news = Find<Button>((FrameworkElement)Content, "btnNewRecords");
+                if (news != null) news.Visibility = Visibility.Visible;
+            }
+            ScheduleHistoryRefresh(false);
         }
 
         // 页面内轻提示：显示约 1.4 秒后淡出, 用于复制成功/失败反馈。
@@ -239,6 +307,7 @@ namespace Codepass
                 {
                     toastTimer.Stop();
                     if (toastBox == null) return;
+                    if (!SystemParameters.ClientAreaAnimation) { toastBox.Visibility = Visibility.Collapsed; return; }
                     DoubleAnimation fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(220));
                     fade.Completed += delegate
                     {

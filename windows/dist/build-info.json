@@ -1,0 +1,9 @@
+﻿{
+    "version":  "1.0.6",
+    "buildId":  "1.0.6+20261012062436.e66f520ef44d.dirty.src558311da7f4c",
+    "builtUtc":  "2026-10-12T06:24:36Z",
+    "commit":  "e66f520ef44d",
+    "dirty":  true,
+    "sourceSha256":  "558311da7f4c4707bcf6c36b3365c35c26da8fd0baa0961464a4c621d9fb55f4",
+    "exeSha256":  "C2E267179119FFC493324BC2E8782E53C9944DCFBA161DEB928FD67980EA6631"
+}

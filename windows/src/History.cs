@@ -17,9 +17,11 @@ namespace Codepass
         // sms / email；旧版历史没有该字段，读取时按 sms 兼容。
         public string Channel;
         public string MessageKey;
+        public string TransportKey;
         public string MailboxKey;
         public long MailUid;
         public bool CanBeLatest = true;
+        internal bool IsDeleted;
         internal string CachedPlainLine, CachedProtectedLine;
     }
 
@@ -30,11 +32,7 @@ namespace Codepass
         static readonly List<HistoryItem> Items = new List<HistoryItem>();
         static readonly object Gate = new object();
         static bool unreadableProtectedData;
-        sealed class Receipt { public string Mailbox; public long Uid; public string ProtectedLine; }
-        static readonly Dictionary<string, Receipt> PendingReceipts = new Dictionary<string, Receipt>();
-        const int MaxPendingReceipts = 4096;
-        sealed class RecentReceipt { public long Expires; public string ProtectedLine; }
-        static readonly Dictionary<string, RecentReceipt> RecentMessages = new Dictionary<string, RecentReceipt>();
+        static readonly ReceiptLedger Receipts = new ReceiptLedger();
         public static string LastSaveError { get; private set; }
 
         public static void Init(string path)
@@ -43,8 +41,7 @@ namespace Codepass
             lock (Gate)
             {
                 Items.Clear();
-                PendingReceipts.Clear();
-                RecentMessages.Clear();
+                Receipts.Reset();
                 unreadableProtectedData = false;
                 LastSaveError = null;
                 try
@@ -56,33 +53,13 @@ namespace Codepass
                         string ln = storedLine;
                         string protectedLine = null;
                         if (ln.Length == 0) continue;
-                        bool receipt = ln.StartsWith("r3\t", StringComparison.Ordinal);
-                        bool recent = ln.StartsWith("d3\t", StringComparison.Ordinal);
-                        if (receipt || recent || ln.StartsWith("v3\t", StringComparison.Ordinal))
+                        if (Receipts.LoadLine(ln)) continue;
+                        if (ln.StartsWith("v3\t", StringComparison.Ordinal))
                         {
                             try { protectedLine = ln.Substring(3); ln = Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(protectedLine), null, DataProtectionScope.CurrentUser)); }
                             catch { unreadableProtectedData = true; LastSaveError = "历史记录无法在当前 Windows 用户下解密，原文件已保留"; continue; }
                         }
                         string[] p = ln.Split('\t');
-                        if (recent)
-                        {
-                            long expires;
-                            if (p.Length == 3 && p[0] == "d1" && long.TryParse(p[2], out expires))
-                            {
-                                if (expires > DateTime.UtcNow.Ticks && expires <= DateTime.UtcNow.AddMinutes(36).Ticks)
-                                    RecentMessages[Decode(p[1])] = new RecentReceipt { Expires = expires, ProtectedLine = protectedLine };
-                            }
-                            else { unreadableProtectedData = true; LastSaveError = "近期邮件去重凭据损坏，原历史文件已保留"; }
-                            continue;
-                        }
-                        if (receipt)
-                        {
-                            long uid;
-                            if (p.Length == 4 && p[0] == "r1" && long.TryParse(p[3], out uid) && uid > 0)
-                                PendingReceipts[Decode(p[1])] = new Receipt { Mailbox = Decode(p[2]), Uid = uid, ProtectedLine = protectedLine };
-                            else { unreadableProtectedData = true; LastSaveError = "未提交邮件凭据损坏，原历史文件已保留"; }
-                            continue;
-                        }
                         HistoryItem it = new HistoryItem();
                         if (protectedLine != null) { it.CachedPlainLine = ln; it.CachedProtectedLine = protectedLine; }
                         if (p.Length > 0 && p[0] == "v2" && p.Length >= 5)
@@ -113,9 +90,7 @@ namespace Codepass
                         if (Items.Count < Max) Items.Add(it);
                     }
                     // 升级前的可见邮件也加入近期去重，避免首次复查过程中被淘汰后重投递。
-                    foreach (HistoryItem item in Items)
-                        if (item.Channel == "email" && !string.IsNullOrEmpty(item.MessageKey) && !RecentMessages.ContainsKey(item.MessageKey))
-                            RecentMessages[item.MessageKey] = new RecentReceipt { Expires = DateTime.UtcNow.AddMinutes(35).Ticks };
+                    Receipts.SeedLegacy(Items);
                 }
                 catch { LastSaveError = "历史读取失败，原文件已保留"; unreadableProtectedData = true; }
             }
@@ -176,21 +151,18 @@ namespace Codepass
 
         internal static HistoryItem LatestRecord()
         {
-            lock (Gate)
-            {
-                foreach (HistoryItem item in Items)
-                    if (item.CanBeLatest && !string.IsNullOrEmpty(item.Code)) return item;
-                return null;
-            }
+            return LatestUnexpiredRecord(0, DateTime.UtcNow);
         }
 
         internal static HistoryItem LatestUnexpiredRecord(int minutes, DateTime nowUtc)
         {
             lock (Gate)
             {
+                HistoryItem latest = null;
                 foreach (HistoryItem item in Items)
-                    if (item.CanBeLatest && !string.IsNullOrEmpty(item.Code) && !IsExpired(item, minutes, nowUtc)) return item;
-                return null;
+                    if (item.CanBeLatest && !string.IsNullOrEmpty(item.Code) && !IsExpired(item, minutes, nowUtc)
+                        && (latest == null || item.ReceivedUtcTicks > latest.ReceivedUtcTicks)) latest = item;
+                return latest;
             }
         }
 
@@ -201,54 +173,44 @@ namespace Codepass
 
         public static bool AddUnique(HistoryItem it)
         {
+            lock (Config.SaveGate)
             lock (Gate)
             {
                 if (it.ReceivedUtcTicks <= 0) it.ReceivedUtcTicks = DateTime.UtcNow.Ticks;
-                PruneRecentMessages();
-                if (!string.IsNullOrEmpty(it.MessageKey))
-                {
-                    if (RecentMessages.ContainsKey(it.MessageKey)) return false;
-                    if (PendingReceipts.ContainsKey(it.MessageKey)) return false;
-                    foreach (HistoryItem existing in Items)
-                        if (existing.MessageKey == it.MessageKey) return false;
-                }
-                bool pending = !string.IsNullOrEmpty(it.MessageKey) && !string.IsNullOrEmpty(it.MailboxKey) && it.MailUid > 0;
-                if (pending && PendingReceipts.Count >= MaxPendingReceipts)
-                { LastSaveError = "未提交邮件凭据达到上限，请修复配置保存问题后重试"; Program.EmailStatusChanged(); throw new IOException(LastSaveError); }
-                bool recent = it.Channel == "email" && !string.IsNullOrEmpty(it.MessageKey);
-                if (recent && RecentMessages.Count >= MaxPendingReceipts)
-                { LastSaveError = "近期邮件去重凭据达到上限，请稍后重试"; Program.EmailStatusChanged(); throw new IOException(LastSaveError); }
                 List<HistoryItem> previous = new List<HistoryItem>(Items);
-                Items.Insert(0, it);
-                if (pending) PendingReceipts.Add(it.MessageKey, new Receipt { Mailbox = it.MailboxKey, Uid = it.MailUid });
-                if (recent) RecentMessages.Add(it.MessageKey, new RecentReceipt { Expires = DateTime.UtcNow.AddMinutes(35).Ticks });
-                while (Items.Count > Max) Items.RemoveAt(Items.Count - 1);
-                try { Save(); }
-                catch { Items.Clear(); Items.AddRange(previous); if (pending) PendingReceipts.Remove(it.MessageKey); if (recent) RecentMessages.Remove(it.MessageKey); throw; }
-                return true;
+                ReceiptLedger.Snapshot receipts = Receipts.Capture();
+                try
+                {
+                    Receipts.PruneExpired(DateTime.UtcNow);
+                    if (Receipts.IsDuplicate(it, Items))
+                    {
+                        if (Receipts.TrackDuplicateTransport(it)) Save();
+                        return false;
+                    }
+                    Receipts.Track(it);
+                    Items.Insert(0, it);
+                    while (Items.Count > Max) Items.RemoveAt(Items.Count - 1);
+                    Save(); return true;
+                }
+                catch (Exception ex)
+                {
+                    Items.Clear(); Items.AddRange(previous); Receipts.Restore(receipts);
+                    if (ex is IOException) { LastSaveError = ex.Message; Program.EmailStatusChanged(); }
+                    throw;
+                }
             }
         }
 
         internal static void AcknowledgeMailbox(string mailbox, long water)
         {
+            lock (Config.SaveGate)
             lock (Gate)
             {
-                Dictionary<string, Receipt> acknowledged = new Dictionary<string, Receipt>();
-                foreach (KeyValuePair<string, Receipt> item in PendingReceipts)
-                    if (item.Value.Mailbox == mailbox && item.Value.Uid <= water) acknowledged.Add(item.Key, item.Value);
-                if (acknowledged.Count == 0) return;
-                foreach (string key in acknowledged.Keys) PendingReceipts.Remove(key);
+                ReceiptLedger.Snapshot previous = Receipts.Capture();
+                if (!Receipts.AcknowledgeMailbox(mailbox, water)) return;
                 try { Save(); }
-                catch { foreach (KeyValuePair<string, Receipt> item in acknowledged) PendingReceipts[item.Key] = item.Value; }
+                catch { Receipts.Restore(previous); }
             }
-        }
-
-        static void PruneRecentMessages()
-        {
-            List<string> expired = new List<string>();
-            foreach (KeyValuePair<string, RecentReceipt> item in RecentMessages)
-                if (item.Value.Expires <= DateTime.UtcNow.Ticks) expired.Add(item.Key);
-            foreach (string key in expired) RecentMessages.Remove(key);
         }
 
         public static string ExtractSender(string text)
@@ -287,6 +249,23 @@ namespace Codepass
             return source == "http" || source == "ntfy" || source == "test" || String.IsNullOrEmpty(source);
         }
 
+        internal static bool Remove(HistoryItem item)
+        {
+            lock (Config.SaveGate)
+            lock (Gate)
+            {
+                int index = Items.IndexOf(item);
+                if (index < 0) return false;
+                Items.RemoveAt(index);
+                try { Save(); }
+                catch { Items.Insert(index, item); throw; }
+                // 仅在落盘成功后撤销这条记录的延迟复制；接收去重/邮件水位凭据继续保留。
+                item.IsDeleted = true;
+                Program.ForgetHistoryRecord(item);
+                return true;
+            }
+        }
+
         public static void Clear()
         {
             lock (Config.SaveGate)
@@ -295,6 +274,7 @@ namespace Codepass
                 List<HistoryItem> previous = new List<HistoryItem>(Items);
                 Items.Clear();
                 try { Save(); } catch { Items.AddRange(previous); throw; }
+                foreach (HistoryItem item in previous) item.IsDeleted = true;
                 Program.SetLatestCode(null, false);
             }
         }
@@ -317,23 +297,7 @@ namespace Codepass
                     }
                     sb.Append("v3\t").Append(it.CachedProtectedLine).AppendLine();
                 }
-                foreach (KeyValuePair<string, Receipt> receipt in PendingReceipts)
-                {
-                    string line = "r1\t" + Encode(receipt.Key) + "\t" + Encode(receipt.Value.Mailbox) + "\t" + receipt.Value.Uid;
-                    if (receipt.Value.ProtectedLine == null)
-                        receipt.Value.ProtectedLine = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(line), null, DataProtectionScope.CurrentUser));
-                    sb.Append("r3\t").Append(receipt.Value.ProtectedLine).AppendLine();
-                }
-                PruneRecentMessages();
-                foreach (KeyValuePair<string, RecentReceipt> receipt in RecentMessages)
-                {
-                    if (receipt.Value.ProtectedLine == null)
-                    {
-                        string line = "d1\t" + Encode(receipt.Key) + "\t" + receipt.Value.Expires;
-                        receipt.Value.ProtectedLine = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(line), null, DataProtectionScope.CurrentUser));
-                    }
-                    sb.Append("d3\t").Append(receipt.Value.ProtectedLine).AppendLine();
-                }
+                Receipts.AppendProtectedLines(sb);
                 Config.WriteAtomically(_path, sb.ToString());
                 LastSaveError = null;
             }
