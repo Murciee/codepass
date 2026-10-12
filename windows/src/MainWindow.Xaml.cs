@@ -13,7 +13,8 @@ namespace Codepass
       xmlns:sys='clr-namespace:System;assembly=mscorlib'
       Background='Transparent'>
   <Grid.Resources>
-    <sys:Double x:Key='SettingsInputWidth'>320</sys:Double>
+    <sys:Double x:Key='SettingsInputWidth'>180</sys:Double>
+    <sys:Double x:Key='SettingsGroupInputWidth'>284</sys:Double>
 
     <!-- Fluent 2 elevation borders (Light). Absolute 0,0 -> 0,3 with ScaleY=-1:
          the first stop lands on the BOTTOM edge, the last one covers the rest. -->
@@ -74,8 +75,14 @@ namespace Codepass
       <Setter Property='Template'>
         <Setter.Value>
           <ControlTemplate TargetType='CheckBox'>
-            <StackPanel Orientation='Horizontal'>
-              <Grid Width='40' Height='20' VerticalAlignment='Center'>
+            <!-- 文字在左、开关推到整行最右：宽行里开关成一条右对齐竖线。 -->
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width='*'/>
+                <ColumnDefinition Width='Auto'/>
+              </Grid.ColumnDefinitions>
+              <ContentPresenter Grid.Column='0' VerticalAlignment='Center'/>
+              <Grid Grid.Column='1' Width='40' Height='20' VerticalAlignment='Center' Margin='10,0,0,0'>
                 <Rectangle x:Name='TrackOff' Width='40' Height='20' RadiusX='10' RadiusY='10'
                            Fill='#06000000' Stroke='#72000000' StrokeThickness='1'/>
                 <Rectangle x:Name='TrackOn' Width='40' Height='20' RadiusX='10' RadiusY='10'
@@ -98,8 +105,7 @@ namespace Codepass
                   </Ellipse>
                 </Grid>
               </Grid>
-              <ContentPresenter Margin='10,0,0,0' VerticalAlignment='Center'/>
-            </StackPanel>
+            </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property='IsMouseOver' Value='True'>
                 <Setter TargetName='TrackOff' Property='Fill' Value='#0F000000'/>
@@ -172,29 +178,6 @@ namespace Codepass
               <Trigger Property='IsChecked' Value='True'>
                 <Setter TargetName='TrackOn' Property='Opacity' Value='1'/>
                 <Setter TargetName='Knob' Property='Fill' Value='#FFFFFF'/>
-                <Setter TargetName='KnobHost' Property='HorizontalAlignment' Value='Right'/>
-                <Trigger.EnterActions>
-                  <BeginStoryboard>
-                    <Storyboard>
-                      <DoubleAnimationUsingKeyFrames Storyboard.TargetName='KnobShift'
-                                                     Storyboard.TargetProperty='X'>
-                        <DiscreteDoubleKeyFrame KeyTime='0' Value='-20'/>
-                        <SplineDoubleKeyFrame KeyTime='0:0:0.167' KeySpline='0,0,0,1' Value='0'/>
-                      </DoubleAnimationUsingKeyFrames>
-                    </Storyboard>
-                  </BeginStoryboard>
-                </Trigger.EnterActions>
-                <Trigger.ExitActions>
-                  <BeginStoryboard>
-                    <Storyboard>
-                      <DoubleAnimationUsingKeyFrames Storyboard.TargetName='KnobShift'
-                                                     Storyboard.TargetProperty='X'>
-                        <DiscreteDoubleKeyFrame KeyTime='0' Value='20'/>
-                        <SplineDoubleKeyFrame KeyTime='0:0:0.167' KeySpline='0,0,0,1' Value='0'/>
-                      </DoubleAnimationUsingKeyFrames>
-                    </Storyboard>
-                  </BeginStoryboard>
-                </Trigger.ExitActions>
               </Trigger>
               <Trigger Property='IsEnabled' Value='False'>
                 <Setter TargetName='TrackOff' Property='Fill' Value='#00FFFFFF'/>
@@ -221,6 +204,276 @@ namespace Codepass
       <Setter Property='Margin' Value='0,0,0,14'/>
     </Style>
 
+    <!-- Fluent / Windows 11 SettingsCard：一条设置一张卡片，标题与描述在左，控件贴右。
+         内边距 20 与行式卡片 Card 完全一致，保证所有文字同一左线、所有控件同一右线。 -->
+    <Style x:Key='SettingsCard' TargetType='Border'>
+      <Setter Property='Background' Value='#B3FFFFFF'/>
+      <Setter Property='BorderBrush' Value='#0F000000'/>
+      <Setter Property='BorderThickness' Value='1'/>
+      <Setter Property='CornerRadius' Value='4'/>
+      <Setter Property='Padding' Value='20,16,20,16'/>
+      <Setter Property='Margin' Value='0,0,0,4'/>
+      <Setter Property='MinHeight' Value='64'/>
+      <Style.Triggers>
+        <Trigger Property='IsMouseOver' Value='True'>
+          <Setter Property='Background' Value='#E6FFFFFF'/>
+          <Setter Property='BorderBrush' Value='#1F000000'/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style x:Key='SettingsCardHeader' TargetType='TextBlock'>
+      <Setter Property='FontSize' Value='14'/>
+      <Setter Property='Foreground' Value='#E4000000'/>
+      <Setter Property='TextWrapping' Value='Wrap'/>
+      <Setter Property='VerticalAlignment' Value='Center'/>
+    </Style>
+
+    <Style x:Key='SettingsCardDescription' TargetType='TextBlock'>
+      <Setter Property='FontSize' Value='12'/>
+      <Setter Property='Foreground' Value='#6B7280'/>
+      <Setter Property='TextWrapping' Value='Wrap'/>
+      <Setter Property='Margin' Value='0,3,0,0'/>
+      <!-- 描述为空时不占位：否则卡片左侧会被空行推高，文字看着不居中。 -->
+      <Style.Triggers>
+        <Trigger Property='Text' Value=''>
+          <Setter Property='Visibility' Value='Collapsed'/>
+          <Setter Property='Margin' Value='0'/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <!-- 输入框一体化容器：输入框 + 内嵌后缀文字 / 内嵌图标 / 右侧动作段共用一条边框。 -->
+    <Style x:Key='InputAddon' TargetType='Border'>
+      <Setter Property='Background' Value='#B3FFFFFF'/>
+      <Setter Property='BorderBrush' Value='{StaticResource TextControlElevationBorder}'/>
+      <Setter Property='BorderThickness' Value='1'/>
+      <Setter Property='CornerRadius' Value='4'/>
+      <Setter Property='Height' Value='32'/>
+      <Style.Triggers>
+        <Trigger Property='IsMouseOver' Value='True'>
+          <Setter Property='Background' Value='#80F9F9F9'/>
+        </Trigger>
+        <Trigger Property='IsKeyboardFocusWithin' Value='True'>
+          <Setter Property='Background' Value='#FFFFFF'/>
+          <Setter Property='BorderBrush' Value='#0078D4'/>
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+
+    <!-- 一体化容器里的无边框输入框（边框由 InputAddon 提供）。 -->
+    <Style x:Key='InnerInput' TargetType='TextBox'>
+      <Setter Property='Background' Value='Transparent'/>
+      <Setter Property='BorderThickness' Value='0'/>
+      <Setter Property='Padding' Value='7,0,6,0'/>
+      <Setter Property='FontSize' Value='14'/>
+      <Setter Property='Foreground' Value='#E4000000'/>
+      <Setter Property='CaretBrush' Value='#E4000000'/>
+      <Setter Property='VerticalContentAlignment' Value='Center'/>
+      <Setter Property='Template'>
+        <Setter.Value>
+          <ControlTemplate TargetType='TextBox'>
+            <Grid>
+              <Border x:Name='Bd' Background='Transparent' BorderThickness='0'/>
+              <Border x:Name='Underline' Height='2' VerticalAlignment='Bottom' Margin='1,0,1,0'
+                      Background='#00000000' CornerRadius='0,0,3,3' RenderTransformOrigin='0,0.5'>
+                <Border.RenderTransform>
+                  <ScaleTransform x:Name='UnderlineScale' ScaleX='0'/>
+                </Border.RenderTransform>
+              </Border>
+              <ScrollViewer x:Name='PART_ContentHost' Focusable='False' Margin='{TemplateBinding Padding}'
+                            VerticalScrollBarVisibility='{TemplateBinding VerticalScrollBarVisibility}'
+                            HorizontalScrollBarVisibility='{TemplateBinding HorizontalScrollBarVisibility}'
+                            VerticalAlignment='Stretch'/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsEnabled' Value='False'>
+                <Setter Property='Foreground' Value='#5C000000'/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key='InnerPassword' TargetType='PasswordBox'>
+      <Setter Property='Background' Value='Transparent'/>
+      <Setter Property='BorderThickness' Value='0'/>
+      <Setter Property='Padding' Value='7,0,6,0'/>
+      <Setter Property='FontSize' Value='14'/>
+      <Setter Property='Foreground' Value='#E4000000'/>
+      <Setter Property='CaretBrush' Value='#E4000000'/>
+      <Setter Property='VerticalContentAlignment' Value='Center'/>
+      <Setter Property='Template'>
+        <Setter.Value>
+          <ControlTemplate TargetType='PasswordBox'>
+            <Grid>
+              <Border x:Name='Bd' Background='Transparent' BorderThickness='0'/>
+              <ScrollViewer x:Name='PART_ContentHost' Focusable='False' Margin='{TemplateBinding Padding}'
+                            VerticalAlignment='Center'/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsEnabled' Value='False'>
+                <Setter Property='Foreground' Value='#5C000000'/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 输入框内的后缀文字：秒 / 字符 等，贴右边缘，不参与点击。 -->
+    <Style x:Key='InputSuffix' TargetType='TextBlock'>
+      <Setter Property='FontSize' Value='12.5'/>
+      <Setter Property='Foreground' Value='#6B7280'/>
+      <Setter Property='VerticalAlignment' Value='Center'/>
+      <Setter Property='Margin' Value='4,0,9,0'/>
+      <Setter Property='IsHitTestVisible' Value='False'/>
+    </Style>
+
+    <!-- 输入框内右边缘的图标按钮（眼睛等）：无边框、悬停轻微底色。 -->
+    <Style x:Key='InlineIconBtn' TargetType='Button'>
+      <Setter Property='FontFamily' Value='Segoe Fluent Icons, Segoe MDL2 Assets'/>
+      <Setter Property='FontSize' Value='14'/>
+      <Setter Property='Foreground' Value='#6B7280'/>
+      <Setter Property='Cursor' Value='Hand'/>
+      <Setter Property='Width' Value='30'/>
+      <Setter Property='FocusVisualStyle' Value='{StaticResource KeyboardFocus}'/>
+      <Setter Property='Template'>
+        <Setter.Value>
+          <ControlTemplate TargetType='Button'>
+            <Border x:Name='Bd' Background='Transparent' CornerRadius='3' Margin='2'>
+              <ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsMouseOver' Value='True'>
+                <Setter TargetName='Bd' Property='Background' Value='#14000000'/>
+                <Setter Property='Foreground' Value='#E4000000'/>
+              </Trigger>
+              <Trigger Property='IsPressed' Value='True'>
+                <Setter TargetName='Bd' Property='Background' Value='#24000000'/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 输入框一体化容器右侧的动作段（如检测本机地址）：整段可点，左侧一条分隔线。 -->
+    <Style x:Key='InputSegmentBtn' TargetType='Button'>
+      <Setter Property='FontSize' Value='13'/>
+      <Setter Property='Foreground' Value='#E4000000'/>
+      <Setter Property='Cursor' Value='Hand'/>
+      <Setter Property='Padding' Value='12,0,12,0'/>
+      <Setter Property='FocusVisualStyle' Value='{StaticResource KeyboardFocus}'/>
+      <Setter Property='Template'>
+        <Setter.Value>
+          <ControlTemplate TargetType='Button'>
+            <Border x:Name='Bd' Background='Transparent' BorderBrush='#0F000000' BorderThickness='1,0,0,0'>
+              <ContentPresenter Margin='{TemplateBinding Padding}' HorizontalAlignment='Center' VerticalAlignment='Center'/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsMouseOver' Value='True'>
+                <Setter TargetName='Bd' Property='Background' Value='#14000000'/>
+              </Trigger>
+              <Trigger Property='IsPressed' Value='True'>
+                <Setter TargetName='Bd' Property='Background' Value='#24000000'/>
+              </Trigger>
+              <Trigger Property='IsEnabled' Value='False'>
+                <Setter Property='Foreground' Value='#5C000000'/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 分组容器：不再是卡片本身，只负责把一组 SettingsCard 收在一起。 -->
+    <Style x:Key='SettingsGroup' TargetType='Border'>
+      <Setter Property='Background' Value='Transparent'/>
+      <Setter Property='BorderThickness' Value='0'/>
+      <Setter Property='Padding' Value='0'/>
+      <Setter Property='Margin' Value='0,0,0,18'/>
+    </Style>
+
+    <!-- 分组标题与分组说明：左边的 20 与卡片内边距一致，使整页文字落在同一条左线上。 -->
+    <Style x:Key='SettingsGroupTitle' TargetType='TextBlock'>
+      <Setter Property='FontSize' Value='14'/>
+      <Setter Property='FontWeight' Value='SemiBold'/>
+      <Setter Property='Foreground' Value='#E4000000'/>
+      <Setter Property='Margin' Value='20,0,0,8'/>
+    </Style>
+
+    <Style x:Key='SettingsGroupDescription' BasedOn='{StaticResource SettingsCardDescription}' TargetType='TextBlock'>
+      <Setter Property='Margin' Value='20,0,0,10'/>
+    </Style>
+
+    <!-- 可点/可跳转的 SettingsCard：整行可点，右侧带 chevron。 -->
+    <Style x:Key='SettingsCardLink' TargetType='Button'>
+      <Setter Property='Cursor' Value='Hand'/>
+      <Setter Property='FocusVisualStyle' Value='{StaticResource KeyboardFocus}'/>
+      <Setter Property='HorizontalContentAlignment' Value='Stretch'/>
+      <Setter Property='Template'>
+        <Setter.Value>
+          <ControlTemplate TargetType='Button'>
+            <Grid>
+              <Border x:Name='Fill' Background='#B3FFFFFF' BorderBrush='#0F000000' BorderThickness='1' CornerRadius='4'/>
+              <ContentPresenter Margin='16,14,34,14' VerticalAlignment='Center' HorizontalAlignment='Stretch'/>
+              <TextBlock x:Name='Chevron' Text='&#xE76C;' FontFamily='Segoe Fluent Icons, Segoe MDL2 Assets' FontSize='12'
+                         Foreground='#9E000000' HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,14,0'/>
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsMouseOver' Value='True'>
+                <Setter TargetName='Fill' Property='Background' Value='#E6FFFFFF'/>
+                <Setter TargetName='Fill' Property='BorderBrush' Value='#1F000000'/>
+              </Trigger>
+              <Trigger Property='IsPressed' Value='True'>
+                <Setter TargetName='Fill' Property='Background' Value='#CCF9F9F9'/>
+                <Setter TargetName='Chevron' Property='Foreground' Value='#E4000000'/>
+              </Trigger>
+              <Trigger Property='IsEnabled' Value='False'>
+                <Setter TargetName='Fill' Property='Background' Value='#4DF9F9F9'/>
+                <Setter TargetName='Chevron' Property='Visibility' Value='Collapsed'/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- 描述行里的文字动作（如测试连通性）：无边框、强调色、前置小图标，与描述同一条基线。 -->
+    <Style x:Key='FieldLinkBtn' TargetType='Button'>
+      <Setter Property='Foreground' Value='#0078D4'/>
+      <Setter Property='FontSize' Value='12'/>
+      <Setter Property='Cursor' Value='Hand'/>
+      <Setter Property='Padding' Value='0'/>
+      <Setter Property='FocusVisualStyle' Value='{StaticResource KeyboardFocus}'/>
+      <Setter Property='Template'>
+        <Setter.Value>
+          <ControlTemplate TargetType='Button'>
+            <Border x:Name='Bd' Background='Transparent' Padding='1,0,1,0'>
+              <StackPanel Orientation='Horizontal'>
+                <TextBlock Text='&#xE71B;' FontFamily='Segoe Fluent Icons, Segoe MDL2 Assets' FontSize='12'
+                           VerticalAlignment='Center' Margin='0,0,4,0'/>
+                <ContentPresenter VerticalAlignment='Center'/>
+              </StackPanel>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property='IsMouseOver' Value='True'>
+                <Setter Property='Foreground' Value='#005A9E'/>
+              </Trigger>
+              <Trigger Property='IsPressed' Value='True'>
+                <Setter Property='Foreground' Value='#003D69'/>
+              </Trigger>
+              <Trigger Property='IsEnabled' Value='False'>
+                <Setter Property='Foreground' Value='#5C000000'/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
     <Style x:Key='RecordCard' BasedOn='{StaticResource Card}' TargetType='Border'>
       <Setter Property='Padding' Value='18,18,18,12'/>
       <Setter Property='Margin' Value='22,18,22,14'/>
@@ -233,6 +486,9 @@ namespace Codepass
       <Setter Property='Margin' Value='0,0,0,10'/>
     </Style>
 
+    <!-- 表单标签：单元格位置由 InitializeResponsiveForms 统一设置，
+         这里只能设字体与颜色，禁止再设 Height / Padding / Margin，
+         否则该卡片的标签会整体偏离同一行的输入框。 -->
     <Style x:Key='FieldLabel' TargetType='TextBlock'>
       <Setter Property='FontSize' Value='14'/>
       <Setter Property='Foreground' Value='#9E000000'/>
@@ -300,13 +556,6 @@ namespace Codepass
           </ControlTemplate>
         </Setter.Value>
       </Setter>
-    </Style>
-
-    <Style x:Key='EmailFieldLabel' TargetType='TextBlock' BasedOn='{StaticResource FieldLabel}'>
-      <Setter Property='Height' Value='32'/>
-      <Setter Property='Margin' Value='0,8,12,8'/>
-      <Setter Property='VerticalAlignment' Value='Top'/>
-      <Setter Property='Padding' Value='0,6,0,0'/>
     </Style>
 
     <Style x:Key='PasswordInput' TargetType='PasswordBox'>
@@ -422,7 +671,7 @@ namespace Codepass
         <Setter.Value>
           <ControlTemplate TargetType='Button'>
             <Grid>
-              <Border x:Name='Fill' Background='#0078D4' CornerRadius='4'/>
+              <Border x:Name='Fill' Background='#0067C0' CornerRadius='4'/>
               <Border x:Name='Stroke' BorderBrush='{StaticResource AccentElevationBorder}'
                       BorderThickness='1' CornerRadius='4'/>
               <ContentPresenter Margin='{TemplateBinding Padding}' HorizontalAlignment='Center' VerticalAlignment='Center'/>
@@ -498,17 +747,17 @@ namespace Codepass
         <Setter.Value>
           <ControlTemplate TargetType='Button'>
             <Grid>
-              <Border x:Name='Fill' Background='#B3FFFFFF' CornerRadius='4'/>
-              <Border x:Name='Stroke' BorderBrush='{StaticResource ControlElevationBorder}'
+              <Border x:Name='Fill' Background='Transparent' CornerRadius='4'/>
+              <Border x:Name='Stroke' BorderBrush='#E5E5E5'
                       BorderThickness='1' CornerRadius='4'/>
               <ContentPresenter Margin='{TemplateBinding Padding}' HorizontalAlignment='Center' VerticalAlignment='Center'/>
             </Grid>
             <ControlTemplate.Triggers>
               <Trigger Property='IsMouseOver' Value='True'>
-                <Setter TargetName='Fill' Property='Background' Value='#80F9F9F9'/>
+                <Setter TargetName='Fill' Property='Background' Value='#F5F5F5'/>
               </Trigger>
               <Trigger Property='IsPressed' Value='True'>
-                <Setter TargetName='Fill' Property='Background' Value='#4DF9F9F9'/>
+                <Setter TargetName='Fill' Property='Background' Value='#EBEBEB'/>
                 <Setter TargetName='Stroke' Property='BorderBrush' Value='#0F000000'/>
                 <Setter Property='Foreground' Value='#9E000000'/>
               </Trigger>
@@ -773,7 +1022,7 @@ namespace Codepass
 
     <Style x:Key='Hint' TargetType='TextBlock'>
       <Setter Property='FontSize' Value='12'/>
-      <Setter Property='Foreground' Value='#9E000000'/>
+      <Setter Property='Foreground' Value='#6B7280'/>
       <Setter Property='VerticalAlignment' Value='Center'/>
     </Style>
 
@@ -847,7 +1096,7 @@ namespace Codepass
         <!-- 设置页 -->
         <Grid x:Name='pageSet' Grid.Column='1' Visibility='Collapsed'>
           <ScrollViewer x:Name='settingsScroll' VerticalScrollBarVisibility='Auto'>
-            <StackPanel Margin='22,20,22,22'>
+            <StackPanel MaxWidth='560' HorizontalAlignment='Center' Margin='0,20,0,22'>
 
               <Border Background='#FFF4CE' CornerRadius='6' Padding='10' Margin='0,0,0,12' x:Name='storageErrorBanner' Visibility='Collapsed'>
                 <StackPanel>
@@ -856,392 +1105,574 @@ namespace Codepass
                 </StackPanel>
               </Border>
 
-               <Border x:Name='cardEmailStatus' Style='{StaticResource Card}' Visibility='Collapsed'>
-                 <StackPanel>
-                   <Border Background='Transparent' CornerRadius='6' Padding='0'>
-                      <TextBlock x:Name='lblEmailStatus' Foreground='#005A9E' FontSize='14' FontWeight='SemiBold' TextWrapping='Wrap' Text='尚未连接'/>
-                   </Border>
-                   <Expander Header='检查与处理详情' FontSize='12' Margin='0,6,0,0'>
-                   <StackPanel>
-                   <TextBlock x:Name='lblEmailFolders' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,8,0,0'/>
-                   <TextBlock x:Name='lblEmailProcessing' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,5,0,0'/>
-                   <WrapPanel Margin='0,8,0,0'>
-                     <Button x:Name='btnEmailRecheck' Style='{StaticResource SecondaryBtn}' Content='重新检查近 30 分钟' Margin='0,0,8,0'/>
-                   </WrapPanel>
-                   </StackPanel>
-                   </Expander>
-                 </StackPanel>
-               </Border>
-
-               <Border x:Name='cardGeneral' Style='{StaticResource Card}'>
+              <!-- 分组：电脑端接收 -->
+              <Border x:Name='cardGeneral' Style='{StaticResource SettingsGroup}'>
                 <StackPanel>
-                  <TextBlock Style='{StaticResource CardTitle}' Text='电脑端接收'/>
-                  <Grid>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width='150'/>
-                      <ColumnDefinition Width='*'/>
-                    </Grid.ColumnDefinitions>
-                     <Grid.RowDefinitions>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
-                     </Grid.RowDefinitions>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='电脑端接收'/>
+                  <TextBlock Style='{StaticResource SettingsGroupDescription}' Text='局域网接收需设置访问令牌；未设置时只监听本机，改端口或令牌后重启。'/>
 
-                    <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='监听端口'/>
-                    <TextBox x:Name='txtPort' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'/>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='监听端口'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='1～65535'/>
+                      </StackPanel>
+                      <TextBox x:Name='txtPort' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='72' HorizontalAlignment='Right'/>
+                    </Grid>
+                  </Border>
 
-                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='访问令牌'/>
-                     <StackPanel x:Name='tokenHost' Grid.Row='1' Grid.Column='1' VerticalAlignment='Center'/>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='访问令牌'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='局域网请求的校验口令；留空表示不校验'/>
+                      </StackPanel>
+                      <StackPanel x:Name='tokenHost' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center'/>
+                    </Grid>
+                  </Border>
 
-                     <CheckBox x:Name='chkStartup' Grid.Row='2' Grid.Column='1'
-                               Content='随 Windows 静默启动 codepass（驻留托盘）'
-                               Foreground='#E4000000' FontSize='14' VerticalAlignment='Center'/>
-                  </Grid>
-                  <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
-                             Text='局域网接收必须设置随机访问令牌；未设置时只监听本机。更改令牌有无、绑定地址或端口后请重启程序。'/>
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='静默启动'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='随 Windows 静默启动 codepass（驻留托盘）'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkStartup' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center' AutomationProperties.Name='静默启动'/>
+                    </Grid>
+                  </Border>
                 </StackPanel>
               </Border>
 
-              <Border x:Name='cardNetwork' Style='{StaticResource Card}'>
+              <!-- 分组：手机连接与验证码处理 -->
+              <Border x:Name='cardNetwork' Style='{StaticResource SettingsGroup}'>
                 <StackPanel>
-                  <TextBlock Style='{StaticResource CardTitle}' Text='手机连接与验证码处理'/>
-                  <Grid>
-                    <Grid.ColumnDefinitions>
-                      <ColumnDefinition Width='150'/>
-                      <ColumnDefinition Width='*'/>
-                    </Grid.ColumnDefinitions>
-                     <Grid.RowDefinitions>
-                      <RowDefinition Height='42'/>
-                      <RowDefinition Height='42'/>
-                      <RowDefinition Height='42'/>
-                      <RowDefinition Height='42'/>
-                     </Grid.RowDefinitions>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='手机连接'/>
 
-                    <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='电脑 IPv4 地址'/>
-                    <Grid x:Name='pcAddressRow' Tag='FieldActions' Grid.Row='0' Grid.Column='1'>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
                       <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                      <TextBox x:Name='txtPcIp' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}'/>
-                      <WrapPanel Grid.Column='1'>
-                        <Button x:Name='btnDetect' Style='{StaticResource SecondaryBtn}' Content='检测本机地址'/>
-                        <Button x:Name='btnTestPc' Style='{StaticResource SecondaryBtn}' Content='测试连通性' Margin='10,0,0,0'/>
-                      </WrapPanel>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='电脑 IPv4 地址'/>
+                        <StackPanel Orientation='Horizontal' Margin='0,4,0,0'>
+                          <Button x:Name='btnDetect' Style='{StaticResource FieldLinkBtn}' Content='检测本机地址' AutomationProperties.Name='检测本机地址'/>
+                          <Button x:Name='btnTestPc' Style='{StaticResource FieldLinkBtn}' Content='测试连通性' Margin='14,0,0,0'/>
+                        </StackPanel>
+                      </StackPanel>
+                      <TextBox x:Name='txtPcIp' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='132' HorizontalAlignment='Right'/>
                     </Grid>
+                  </Border>
 
-                    <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='验证码长度'/>
-                    <Grid x:Name='codeLengthRow' Grid.Row='1' Grid.Column='1' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='28'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-                      <TextBox x:Name='txtMin' Style='{StaticResource Input}' AutomationProperties.Name='最短验证码长度'/>
-                      <TextBlock Grid.Column='1' Text='至' Foreground='#9E000000' HorizontalAlignment='Center' VerticalAlignment='Center'/>
-                      <TextBox x:Name='txtMax' Grid.Column='2' Style='{StaticResource Input}' AutomationProperties.Name='最长验证码长度'/>
-                    </Grid>
-
-                    <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='自动清除剪贴板'/>
-                    <Grid Tag='FieldActions' Grid.Row='2' Grid.Column='1'>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
                       <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                      <TextBox x:Name='txtClear' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}'/>
-                      <TextBlock Grid.Column='1' Style='{StaticResource Hint}' Text='秒（0 表示不清除）'/>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='验证码长度'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='1～32；不在此范围的数字不算验证码'/>
+                      </StackPanel>
+                      <Grid x:Name='codeLengthRow' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right'>
+                        <StackPanel Orientation='Horizontal'>
+                          <TextBox x:Name='txtMin' Style='{StaticResource Input}' Width='46' HorizontalAlignment='Center' AutomationProperties.Name='最短验证码长度'/>
+                          <TextBlock Text='~' Foreground='#6B7280' FontSize='13' VerticalAlignment='Center' Margin='8,0,8,0'/>
+                          <TextBox x:Name='txtMax' Style='{StaticResource Input}' Width='46' HorizontalAlignment='Center' AutomationProperties.Name='最长验证码长度'/>
+                        </StackPanel>
+                      </Grid>
                     </Grid>
+                  </Border>
 
-                    <TextBlock Grid.Row='3' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='桌面通知'/>
-                     <CheckBox x:Name='chkTip' Grid.Row='3' Grid.Column='1' Content='收到验证码后显示通知' Foreground='#E4000000' FontSize='14' VerticalAlignment='Center'/>
-                   </Grid>
-                  </StackPanel>
-                </Border>
-                <Border x:Name='cardNtfy' Style='{StaticResource Card}'>
-                  <StackPanel>
-                   <TextBlock Style='{StaticResource CardTitle}' Text='公网中转（ntfy，可选）'/>
-                   <Grid>
-                     <Grid.ColumnDefinitions>
-                       <ColumnDefinition Width='150'/>
-                       <ColumnDefinition Width='*'/>
-                     </Grid.ColumnDefinitions>
-                     <Grid.RowDefinitions>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
-                       <RowDefinition Height='42'/>
-                     </Grid.RowDefinitions>
-
-                     <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='服务器地址'/>
-                     <Grid Tag='FieldActions' Grid.Row='0' Grid.Column='1'>
-                       <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-                       <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                       <TextBox x:Name='txtNtfyServer' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}'/>
-                       <Button x:Name='btnTestNtfy' Grid.Column='1' Style='{StaticResource SecondaryBtn}' Content='测试连通性' HorizontalAlignment='Left'/>
-                     </Grid>
-
-                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='主题名称'/>
-                     <Grid Tag='FieldActions' Grid.Row='1' Grid.Column='1'>
-                       <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-                       <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                       <TextBox x:Name='txtNtfyTopic' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}'/>
-                       <TextBlock Grid.Column='1' Style='{StaticResource Hint}' Text='留空表示停用'/>
-                     </Grid>
-
-                     <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='访问令牌'/>
-                      <StackPanel x:Name='ntfyTokenHost' Grid.Row='2' Grid.Column='1' VerticalAlignment='Center'/>
-                    </Grid>
-                  </StackPanel>
-                </Border>
-                <Border x:Name='cardSmsFilters' Style='{StaticResource Card}'>
-                  <StackPanel>
-                    <TextBlock Style='{StaticResource CardTitle}' Text='短信过滤规则（可选）'/>
-                    <Grid Margin='0,0,0,12'>
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width='150'/>
-                        <ColumnDefinition Width='*'/>
-                      </Grid.ColumnDefinitions>
-                      <TextBlock Grid.Column='0' Style='{StaticResource FieldLabel}' Text='短信长度上限' VerticalAlignment='Top' Margin='0,8,0,0'/>
-                      <StackPanel Grid.Column='1'>
-                        <Grid Tag='FieldActions'>
-                          <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-                          <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                          <TextBox x:Name='txtSmsMaxLength' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}'/>
-                          <TextBlock Grid.Column='1' Style='{StaticResource Hint}' Text='字符（1～10000）'/>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='自动清除剪贴板'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='0 表示不清除'/>
+                      </StackPanel>
+                      <Border Grid.Row='0' Grid.Column='1' Style='{StaticResource InputAddon}' Width='92' HorizontalAlignment='Right'>
+                        <Grid>
+                          <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                          <TextBox x:Name='txtClear' Grid.Column='0' Style='{StaticResource InnerInput}'/>
+                          <TextBlock Grid.Column='1' Style='{StaticResource InputSuffix}' Text='秒'/>
                         </Grid>
-                        <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,6,0,0'
-                                   Text='推荐 500 字符；超过上限整条忽略，不记入历史、不提示、不复制。仅作用于短信，空格和换行也计入。'/>
+                      </Border>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='桌面通知'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='收到验证码后显示通知'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkTip' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center' AutomationProperties.Name='桌面通知'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='手机脚本接入'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='复制配置给手机脚本，或查看 Webhook 接入说明'/>
+                      </StackPanel>
+                      <StackPanel Grid.Row='0' Grid.Column='1' Orientation='Horizontal' HorizontalAlignment='Right' VerticalAlignment='Center'>
+                        <Button x:Name='btnGen' Style='{StaticResource SecondaryBtn}' Content='复制配置'/>
+                        <Button x:Name='btnWebhook' Style='{StaticResource SecondaryBtn}' Content='Webhook 接入' Margin='8,0,0,0'/>
                       </StackPanel>
                     </Grid>
-                    <Grid>
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width='150'/>
-                        <ColumnDefinition Width='*'/>
-                      </Grid.ColumnDefinitions>
-                      <Grid.RowDefinitions>
-                        <RowDefinition Height='Auto'/>
-                        <RowDefinition Height='Auto'/>
-                        <RowDefinition Height='Auto'/>
-                        <RowDefinition Height='Auto'/>
-                      </Grid.RowDefinitions>
+                  </Border>
 
-                      <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='过滤关键字'/>
-                      <TextBox x:Name='txtFilterKeywords' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}'
-                               Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'
-                               Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
-                               AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
-                      <TextBlock Grid.Row='1' Grid.Column='1' Style='{StaticResource Hint}' TextWrapping='Wrap'
-                                 Text='每行一个关键字，短信包含任一关键字时直接忽略；留空表示不启用' Margin='0,5,0,12'/>
-
-                      <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource FieldLabel}' Text='过滤正则'/>
-                      <TextBox x:Name='txtFilterRegex' Grid.Row='2' Grid.Column='1' Style='{StaticResource Input}'
-                               Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'
-                               Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
-                               AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
-                      <TextBlock Grid.Row='3' Grid.Column='1' Style='{StaticResource Hint}' TextWrapping='Wrap'
-                                 Text='每行一条 .NET 正则表达式，任一匹配时直接忽略；留空表示不启用' Margin='0,5,0,0'/>
-                    </Grid>
-                  </StackPanel>
-               </Border>
-
-               <Border x:Name='cardEmail' Style='{StaticResource Card}'>
-                 <StackPanel>
-                   <TextBlock Style='{StaticResource CardTitle}' Text='邮箱连接'/>
-                   <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,0,0,12'
-                              Text='填写连接信息 → 测试连接 → 保存连接。接收规则与隐私选项自动保存。'/>
-                   <Grid>
-                     <Grid.ColumnDefinitions>
-                       <ColumnDefinition Width='140'/>
-                       <ColumnDefinition Width='*'/>
-                     </Grid.ColumnDefinitions>
-                     <Grid.RowDefinitions>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                     </Grid.RowDefinitions>
-
-                     <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='启用邮箱接收'/>
-                     <CheckBox x:Name='chkEmail' Grid.Row='0' Grid.Column='1' Content='接收邮箱里的验证码邮件' Foreground='#E4000000' FontSize='14' Height='32' Margin='0,8' VerticalAlignment='Top'/>
-
-                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='邮箱服务'/>
-                     <ComboBox x:Name='cmbEmailProvider' Grid.Row='1' Grid.Column='1' Height='32' FontSize='14' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'
-                               Margin='0,8' VerticalAlignment='Top'
-                               Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
-                       <ComboBoxItem Content='QQ 邮箱'/>
-                       <ComboBoxItem Content='163 邮箱'/>
-                       <ComboBoxItem Content='126 邮箱'/>
-                       <ComboBoxItem Content='Gmail'/>
-                       <ComboBoxItem Content='Outlook'/>
-                       <ComboBoxItem Content='自定义'/>
-                     </ComboBox>
-
-                      <Expander x:Name='emailServerAdvanced' Grid.Row='2' Grid.Column='1' Header='服务器设置（自定义服务时展开）' FontSize='12' Margin='0,4'>
-                      <StackPanel>
-                        <TextBox x:Name='txtEmailServer' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left' AutomationProperties.Name='IMAP 服务器地址'/>
-                        <TextBlock Style='{StaticResource Hint}' Text='使用 993 端口，通过 SSL 加密连接' Margin='0,5,0,0' TextWrapping='Wrap'/>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='测试信息'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='模拟一条短信，验证记录、复制与通知'/>
                       </StackPanel>
-                      </Expander>
+                      <Button x:Name='btnTestSms' Grid.Row='0' Grid.Column='1' Style='{StaticResource SecondaryBtn}' Content='模拟收到短信' HorizontalAlignment='Right' VerticalAlignment='Center'/>
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
 
-                     <TextBlock Grid.Row='3' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='邮箱账号'/>
-                     <TextBox x:Name='txtEmailAccount' Grid.Row='3' Grid.Column='1' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left' Margin='0,8' VerticalAlignment='Top'/>
+              <!-- 分组：公网中转 -->
+              <Border x:Name='cardNtfy' Style='{StaticResource SettingsGroup}'>
+                <StackPanel>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='公网中转'/>
 
-                     <TextBlock Grid.Row='4' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='授权码 / 应用密码'/>
-                     <StackPanel Grid.Row='4' Grid.Column='1' Margin='0,8'>
-                       <StackPanel x:Name='emailAuthHost'/>
-                       <TextBlock x:Name='emailAuthHint' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,5,0,0'/>
-                     </StackPanel>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='服务器地址'/>
+                        <StackPanel Orientation='Horizontal' Margin='0,3,0,0'>
+                          <TextBlock Style='{StaticResource SettingsCardDescription}' Margin='0' VerticalAlignment='Center' Text='必须是 HTTPS 地址 ·'/>
+                          <Button x:Name='btnTestNtfy' Style='{StaticResource FieldLinkBtn}' Content='测试连通性' Margin='3,0,0,0'/>
+                        </StackPanel>
+                      </StackPanel>
+                      <TextBox x:Name='txtNtfyServer' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Right'/>
+                    </Grid>
+                  </Border>
 
-                   </Grid>
-                    <WrapPanel Margin='0,10,0,0'>
-                      <Button x:Name='btnEmailTest' Style='{StaticResource SecondaryBtn}' Content='测试邮箱连接' Margin='0,0,8,6'/>
-                      <Button x:Name='btnEmailSave' Style='{StaticResource PrimaryBtn}' Content='保存连接' Margin='0,0,8,6'/>
-                    </WrapPanel>
-                    <TextBlock x:Name='lblEmailTestResult' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,3,0,0'/>
-                    <TextBlock x:Name='emailProviderHint' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'/>
-                   <Button x:Name='btnEmailAuthHelp' Style='{StaticResource SecondaryBtn}' Content='打开 Google 应用专用密码设置'
-                           HorizontalAlignment='Left' Margin='0,10,0,0' Visibility='Collapsed'/>
-                    <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
-                               Text='授权码 / 应用密码采用 Windows 加密存储。只处理启用后新到的邮件，不改动已读状态。'/>
-                     <Button x:Name='btnEmailGuide' Style='{StaticResource SecondaryBtn}' Content='Gmail 设置教程' HorizontalAlignment='Left' Margin='0,12,0,0'/>
-                 </StackPanel>
-               </Border>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='主题名称'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='留空表示停用'/>
+                      </StackPanel>
+                      <TextBox x:Name='txtNtfyTopic' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Right'/>
+                    </Grid>
+                  </Border>
 
-               <Border x:Name='cardEmailFilters' Style='{StaticResource Card}'>
-                 <StackPanel>
-                    <TextBlock Style='{StaticResource CardTitle}' Text='邮件接收规则'/>
-                   <Grid>
-                     <Grid.ColumnDefinitions>
-                       <ColumnDefinition Width='140'/>
-                       <ColumnDefinition Width='*'/>
-                     </Grid.ColumnDefinitions>
-                     <Grid.RowDefinitions>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                       <RowDefinition Height='Auto'/>
-                     </Grid.RowDefinitions>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='访问令牌'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='ntfy 服务的令牌；留空表示不需要'/>
+                      </StackPanel>
+                      <StackPanel x:Name='ntfyTokenHost' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center'/>
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
 
-                     <TextBlock Grid.Row='0' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='主题关键词'/>
-                     <StackPanel Grid.Row='0' Grid.Column='1' Margin='0,8'>
-                       <WrapPanel x:Name='emailKeywordTags'/>
-                        <Grid Tag='FieldActions' Margin='0,4,0,0'>
-                          <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-                          <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                          <TextBox x:Name='txtEmailKeywordAdd' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' ToolTip='输入关键词，按回车添加；支持粘贴多行'/>
-                          <WrapPanel Grid.Column='1'>
-                            <Button x:Name='btnEmailKeywordAdd' Style='{StaticResource SecondaryBtn}' Content='添加'/>
-                            <Button x:Name='btnEmailKeywordDefault' Style='{StaticResource SecondaryBtn}' Content='恢复默认' Margin='10,0,0,0'/>
-                          </WrapPanel>
+              <!-- 分组：短信过滤规则 -->
+              <Border x:Name='cardSmsFilters' Style='{StaticResource SettingsGroup}'>
+                <StackPanel>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='短信过滤'/>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='短信长度上限'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='1～10000；推荐 500。超过上限整条忽略，不记入历史、不提示、不复制，空格和换行也计入'/>
+                      </StackPanel>
+                      <Border Grid.Row='0' Grid.Column='1' Style='{StaticResource InputAddon}' Width='118' HorizontalAlignment='Right'>
+                        <Grid>
+                          <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                          <TextBox x:Name='txtSmsMaxLength' Grid.Column='0' Style='{StaticResource InnerInput}'/>
+                          <TextBlock Grid.Column='1' Style='{StaticResource InputSuffix}' Text='字符'/>
                         </Grid>
-                       <Expander Header='批量编辑（每行一个关键词）' FontSize='12.5' Margin='0,8,0,0'>
-                       <TextBox x:Name='txtEmailKeywords' Style='{StaticResource Input}' Margin='0,6,0,0'
-                                  Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'
-                                 Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
-                                 AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                      </Border>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCardStacked'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='过滤关键字'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='每行一个关键字，短信包含任一关键字时直接忽略；留空表示不启用'/>
+                      </StackPanel>
+                      <TextBox x:Name='txtFilterKeywords' Grid.Row='1' Grid.Column='0' Style='{StaticResource Input}'
+                               Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                               AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCardStacked'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='过滤正则'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='每行一条 .NET 正则表达式，任一匹配时直接忽略；留空表示不启用'/>
+                      </StackPanel>
+                      <TextBox x:Name='txtFilterRegex' Grid.Row='1' Grid.Column='0' Style='{StaticResource Input}'
+                               Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                               AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <!-- 分组：邮箱连接 -->
+              <Border x:Name='cardEmail' Style='{StaticResource SettingsGroup}'>
+                <StackPanel>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='邮箱连接'/>
+                  <TextBlock Style='{StaticResource SettingsGroupDescription}' Text='连接需测试并保存；接收规则自动保存。'/>
+
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='启用邮箱接收'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='接收邮箱里的验证码邮件'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkEmail' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center' AutomationProperties.Name='启用邮箱接收'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='邮箱服务'/>
+                        <TextBlock x:Name='emailProviderHint' Style='{StaticResource SettingsCardDescription}'/>
+                      </StackPanel>
+                      <ComboBox x:Name='cmbEmailProvider' Grid.Row='0' Grid.Column='1' Height='32' FontSize='14' Width='130' HorizontalAlignment='Right' VerticalAlignment='Center'
+                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
+                        <ComboBoxItem Content='QQ 邮箱'/>
+                        <ComboBoxItem Content='163 邮箱'/>
+                        <ComboBoxItem Content='126 邮箱'/>
+                        <ComboBoxItem Content='Gmail'/>
+                        <ComboBoxItem Content='Outlook'/>
+                        <ComboBoxItem Content='自定义'/>
+                      </ComboBox>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='服务器地址'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='自定义服务时填写 IMAP 服务器；SSL 加密，端口 993'/>
+                      </StackPanel>
+                      <TextBox x:Name='txtEmailServer' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Right' AutomationProperties.Name='IMAP 服务器地址'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='邮箱账号'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='完整邮箱地址'/>
+                      </StackPanel>
+                      <TextBox x:Name='txtEmailAccount' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Right'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='授权码 / 应用密码'/>
+                        <TextBlock x:Name='emailAuthHint' Style='{StaticResource SettingsCardDescription}'/>
+                      </StackPanel>
+                      <StackPanel x:Name='emailAuthHost' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='测试信息'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='模拟一封验证码邮件，验证记录、复制与通知'/>
+                      </StackPanel>
+                      <Button x:Name='btnTestEmail' Grid.Row='0' Grid.Column='1' Style='{StaticResource SecondaryBtn}' Content='模拟收到邮件' HorizontalAlignment='Right' VerticalAlignment='Center'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='连接检查'/>
+                        <TextBlock x:Name='lblEmailTestResult' Style='{StaticResource SettingsCardDescription}'/>
+                      </StackPanel>
+                      <StackPanel Grid.Row='0' Grid.Column='1' Orientation='Horizontal' HorizontalAlignment='Right' VerticalAlignment='Center'>
+                        <Button x:Name='btnEmailTest' Style='{StaticResource SecondaryBtn}' Content='测试邮箱连接'/>
+                        <Button x:Name='btnEmailSave' Style='{StaticResource PrimaryBtn}' Content='保存连接' Margin='8,0,0,0'/>
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+
+                  <Button x:Name='btnEmailAuthHelp' Style='{StaticResource SettingsCardLink}' Content='打开 Google 应用密码设置' Margin='0,0,0,4' Visibility='Collapsed'/>
+                  <Button x:Name='btnEmailGuide' Style='{StaticResource SettingsCardLink}' Content='Gmail 设置教程' Visibility='Collapsed'/>
+                </StackPanel>
+              </Border>
+
+              <!-- 分组：邮件接收规则 -->
+              <Border x:Name='cardEmailFilters' Style='{StaticResource SettingsGroup}'>
+                <StackPanel>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='接收规则'/>
+                  <TextBlock Style='{StaticResource SettingsGroupDescription}' Text='匹配任一关键词；留空不接收。'/>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCardStacked'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='主题关键词'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='邮箱主题包含任一关键词才接收；点 × 移除。'/>
+                        <WrapPanel x:Name='emailKeywordTags' Margin='0,8,0,0'/>
+                      </StackPanel>
+                      <Grid Tag='FieldActions' Grid.Row='1' Grid.Column='0' HorizontalAlignment='Right'>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                        <TextBox x:Name='txtEmailKeywordAdd' Style='{StaticResource Input}' Width='160' Visibility='Collapsed' ToolTip='输入关键词，按回车添加；支持粘贴多行'/>
+                        <WrapPanel Grid.Column='1'>
+                          <Button x:Name='btnEmailKeywordAdd' Style='{StaticResource SecondaryBtn}' Content='添加'/>
+                          <Button x:Name='btnEmailKeywordDefault' Style='{StaticResource SecondaryBtn}' Content='恢复默认' Margin='8,0,0,0'/>
+                        </WrapPanel>
+                      </Grid>
+                      <StackPanel Grid.Row='2' Grid.Column='0' Margin='0,6,0,0'>
+                        <Expander Header='批量编辑（每行一个关键词）' FontSize='12.5'>
+                          <TextBox x:Name='txtEmailKeywords' Style='{StaticResource Input}' Margin='0,6,0,0'
+                                   Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                                   AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
                         </Expander>
-                        <Expander Header='测试主题匹配' FontSize='12.5' Margin='0,8,0,0'>
+                        <Expander Header='测试主题匹配' FontSize='12.5' Margin='0,6,0,0'>
                           <StackPanel>
-                            <TextBox x:Name='txtEmailSubjectPreview' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left' Margin='0,6,0,0' ToolTip='输入示例邮件主题，只在本机预览规则'/>
+                            <TextBox x:Name='txtEmailSubjectPreview' Style='{StaticResource Input}' Margin='0,6,0,0' ToolTip='输入示例邮件主题，只在本机预览规则'/>
                             <TextBlock x:Name='lblEmailPreviewResult' Style='{StaticResource Hint}' Margin='0,5,0,0' Text='输入主题查看是否会被接收'/>
                           </StackPanel>
                         </Expander>
-                       <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='主题包含任一标签才读取正文；留空不接收邮件。' Margin='0,6,0,0'/>
-                     </StackPanel>
-
-                     <TextBlock Grid.Row='1' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='发件人白名单'/>
-                     <StackPanel Grid.Row='1' Grid.Column='1' Margin='0,8'>
-                        <TextBox x:Name='txtEmailSenders' Style='{StaticResource Input}'
-                                 Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'
-                                Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
-                                AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
-                        <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='每行填写完整邮箱或完整域名，例如 noreply@example.com / example.com；精确匹配，留空不限发件人。From 地址不等于已认证身份。' Margin='0,5,0,0'/>
-                     </StackPanel>
-
-                     <TextBlock Grid.Row='2' Grid.Column='0' Style='{StaticResource EmailFieldLabel}' Text='接收选项'/>
-                     <WrapPanel x:Name='emailReceiveOptions' Grid.Row='2' Grid.Column='1' Margin='0,8'>
-                       <CheckBox x:Name='chkEmailNotify' Content='到达提示' Foreground='#E4000000' FontSize='14' Height='32' Margin='0,0,20,0'/>
-                       <CheckBox x:Name='chkEmailAutoCopy' Content='自动复制' Foreground='#E4000000' FontSize='14' Height='32'/>
-                     </WrapPanel>
+                      </StackPanel>
                     </Grid>
-                 </StackPanel>
-               </Border>
+                  </Border>
 
-               <Border x:Name='cardQqPopup' Style='{StaticResource Card}'>
-                 <Expander x:Name='emailAdvanced' Header='邮箱高级设置' FontSize='14'>
-                  <StackPanel>
-                     <Grid>
-                       <Grid.ColumnDefinitions><ColumnDefinition Width='140'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-                       <TextBlock Style='{StaticResource EmailFieldLabel}' Text='检查间隔'/>
-                       <StackPanel Grid.Column='1' Margin='0,8'>
-                         <Grid Tag='FieldActions'>
-                           <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
-                           <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                           <TextBox x:Name='txtEmailPoll' Style='{StaticResource Input}' Width='{DynamicResource SettingsInputWidth}'/>
-                           <TextBlock Grid.Column='1' Style='{StaticResource Hint}' Text='秒（10～600）'/>
-                         </Grid>
-                         <TextBlock Style='{StaticResource Hint}' Text='收件箱支持 IDLE 时实时接收；分类目录按间隔检查。排除已发送、草稿和已删除。' TextWrapping='Wrap' Margin='0,5,0,0'/>
-                       </StackPanel>
-                     </Grid>
-                     <CheckBox x:Name='chkEmailJunk' Content='同时检查垃圾 / 广告文件夹' FontSize='14' Margin='0,12,0,0'/>
-                     <CheckBox x:Name='chkEmailSaveBody' Content='在记录中保存邮件内容（正文最多 20000 字符）' FontSize='14' Margin='0,12,0,0'/>
-                     <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='默认仅保存发件人和验证码；历史采用当前 Windows 用户加密，换机或换用户不可直接读取。旧版明文记录下次成功保存时迁移。' Margin='0,6,0,0'/>
-                     <TextBlock Style='{StaticResource CardTitle}' Text='QQ 弹窗联动（可选）' Margin='0,18,0,10'/>
-                     <CheckBox x:Name='chkQqPopup' Content='QQ 新邮件提醒出现时，立即检查已配置的邮箱' Foreground='#E4000000' FontSize='14'/>
-                    <TextBlock x:Name='lblQqPopupRisk' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,6,0,0'
-                              Text='需要先配置并启用 IMAP；仅以 QQ 邮件提醒窗口标题唤醒检查，不读取聊天或弹窗正文。'/>
-                    <TextBlock x:Name='lblQqStatus' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,6,0,0'/>
-                 </StackPanel>
-                 </Expander>
-               </Border>
-
-                <Border x:Name='cardNotify' Style='{StaticResource Card}' Visibility='Collapsed'>
-                  <StackPanel>
-                    <TextBlock Style='{StaticResource CardTitle}' Text='通知隐私'/>
-                    <Grid>
-                      <Grid.ColumnDefinitions><ColumnDefinition Width='150'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCardStacked'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
                       <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
-                      <TextBlock Grid.Row='0' Style='{StaticResource FieldLabel}' Text='短信通知内容'/>
-                      <ComboBox x:Name='cmbPrivacy' Grid.Row='0' Grid.Column='1' Height='32' FontSize='14' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left' Margin='0,0,0,12'
-                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
-                        <ComboBoxItem Content='只提示收到，不显示内容'/>
-                        <ComboBoxItem Content='显示内容，验证码替换为星号'/>
-                        <ComboBoxItem Content='完整显示短信内容'/>
-                      </ComboBox>
-                      <TextBlock Grid.Row='1' Style='{StaticResource FieldLabel}' Text='邮件通知内容'/>
-                      <ComboBox x:Name='cmbEmailPrivacy' Grid.Row='1' Grid.Column='1' Height='32' FontSize='14' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Left'
-                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
-                        <ComboBoxItem Content='只提示收到，不显示内容'/>
-                        <ComboBoxItem Content='显示内容，验证码替换为星号'/>
-                        <ComboBoxItem Content='完整显示邮件内容'/>
-                      </ComboBox>
+                      <StackPanel Grid.Row='0' Grid.Column='0'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='发件人白名单'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='每行一个邮箱或域名；留空不限'/>
+                      </StackPanel>
+                      <TextBox x:Name='txtEmailSenders' Grid.Row='1' Grid.Column='0' Style='{StaticResource Input}'
+                               Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                               AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
                     </Grid>
-                     <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,12,0,0' Text='两种通道分别设置，默认只提示收到。此处控制桌面通知，不影响剪贴板或记录原文；记录页可用下方密码锁保护。'/>
-                   </StackPanel>
-                </Border>
+                  </Border>
 
-              <Border x:Name='cardSecurity' Style='{StaticResource Card}'>
-                <StackPanel>
-                  <TextBlock Style='{StaticResource CardTitle}' Text='程序密码锁'/>
-                  <CheckBox x:Name='chkAutoLock' Content='启用自动锁定（启动、重开窗口、最小化时需解锁）'
-                            Foreground='#E4000000' FontSize='14'/>
-                   <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
-                              Text='密码锁保护界面；历史由当前 Windows 用户加密，与密码锁独立，配置和日志仍需妥善保护。自动锁定默认关闭，也可手动立即锁定。'/>
-                   <WrapPanel Margin='0,14,0,0'>
-                   <Button x:Name='btnSecurity' Style='{StaticResource SecondaryBtn}' Content='设置密码锁' Margin='0,0,8,6'/>
-                   <Button x:Name='btnDisableLock' Style='{StaticResource SecondaryBtn}' Content='关闭密码锁' Margin='0,0,8,6'/>
-                   <Button x:Name='btnLock' Style='{StaticResource SecondaryBtn}' Content='立即锁定' Margin='0,0,8,6'/>
-                   </WrapPanel>
-                 </StackPanel>
-               </Border>
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='到达提示'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='收到验证码邮件后弹出桌面通知'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkEmailNotify' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center' AutomationProperties.Name='到达提示'/>
+                    </Grid>
+                  </Border>
 
-              <Border x:Name='cardMore' Style='{StaticResource Card}'>
-                <StackPanel>
-                  <TextBlock Style='{StaticResource CardTitle}' Text='配置管理'/>
-                   <WrapPanel>
-                     <Button x:Name='btnGen' Style='{StaticResource SecondaryBtn}' Content='复制 root 脚本配置'/>
-                     <Button x:Name='btnWebhook' Style='{StaticResource SecondaryBtn}' Content='Webhook 接入' Margin='8,0,0,0'/>
-                     <Button x:Name='btnImport' Style='{StaticResource SecondaryBtn}' Content='导入设置' Margin='10,0,0,0'/>
-                     <Button x:Name='btnExport' Style='{StaticResource SecondaryBtn}' Content='导出设置' Margin='10,0,0,0'/>
-                   </WrapPanel>
-                   <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='设置修改后自动保存；端口 / ntfy 修改后请重启。导出设置用于迁移，排障请使用“关于”中的脱敏诊断。' Margin='0,10,0,0'/>
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='自动复制'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='识别到验证码后直接写入剪贴板'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkEmailAutoCopy' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center' AutomationProperties.Name='自动复制'/>
+                    </Grid>
+                  </Border>
                 </StackPanel>
               </Border>
 
-             </StackPanel>
+              <!-- 分组：邮箱高级设置 -->
+              <Border x:Name='cardQqPopup' Style='{StaticResource SettingsGroup}'>
+                <StackPanel x:Name='emailAdvanced'>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='高级设置'/>
+                  <TextBlock Style='{StaticResource SettingsGroupDescription}' Text='默认只存发件人与验证码，记录加密保存。'/>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='检查间隔'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='10～600；支持 IDLE 时实时接收，其他目录定时检查'/>
+                      </StackPanel>
+                      <Border Grid.Row='0' Grid.Column='1' Style='{StaticResource InputAddon}' Width='92' HorizontalAlignment='Right'>
+                        <Grid>
+                          <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                          <TextBox x:Name='txtEmailPoll' Grid.Column='0' Style='{StaticResource InnerInput}'/>
+                          <TextBlock Grid.Column='1' Style='{StaticResource InputSuffix}' Text='秒'/>
+                        </Grid>
+                      </Border>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='同时检查垃圾 / 广告文件夹'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkEmailJunk' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center' AutomationProperties.Name='同时检查垃圾 / 广告文件夹'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='在记录中保存邮件正文'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='正文最多保存 20000 字符；加密记录仅限当前 Windows 账户读取'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkEmailSaveBody' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center' AutomationProperties.Name='在记录中保存邮件正文'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='QQ 弹窗联动'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='仅用 QQ 提醒标题触发邮箱检查，不读取聊天内容'/>
+                        <TextBlock x:Name='lblQqStatus' Style='{StaticResource SettingsCardDescription}'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkQqPopup' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center'
+                                AutomationProperties.Name='QQ 弹窗联动' ToolTip='仅用 QQ 提醒标题触发邮箱检查，不读取聊天内容。' ToolTipService.ShowOnDisabled='True'/>
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <!-- 分组：通知隐私 -->
+              <Border x:Name='cardNotify' Style='{StaticResource SettingsGroup}' Visibility='Collapsed'>
+                <StackPanel>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='通知隐私'/>
+                  <TextBlock Style='{StaticResource SettingsGroupDescription}' Text='两种通道分别设置，默认只提示收到；不影响剪贴板与记录原文。'/>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='短信通知内容'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='短信桌面通知里显示到什么程度'/>
+                      </StackPanel>
+                      <ComboBox x:Name='cmbPrivacy' Grid.Row='0' Grid.Column='1' Height='32' FontSize='14' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Right' VerticalAlignment='Center'
+                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
+                        <ComboBoxItem Content='只提示收到'/>
+                        <ComboBoxItem Content='验证码打码'/>
+                        <ComboBoxItem Content='完整显示'/>
+                      </ComboBox>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='邮件通知内容'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='邮件桌面通知里显示到什么程度'/>
+                      </StackPanel>
+                      <ComboBox x:Name='cmbEmailPrivacy' Grid.Row='0' Grid.Column='1' Height='32' FontSize='14' Width='{DynamicResource SettingsInputWidth}' HorizontalAlignment='Right' VerticalAlignment='Center'
+                                Style='{StaticResource PrivacyCombo}' ItemContainerStyle='{StaticResource PrivacyItem}'>
+                        <ComboBoxItem Content='只提示收到'/>
+                        <ComboBoxItem Content='验证码打码'/>
+                        <ComboBoxItem Content='完整显示'/>
+                      </ComboBox>
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+              <!-- 分组：程序密码锁 -->
+              <Border x:Name='cardSecurity' Style='{StaticResource SettingsGroup}'>
+                <StackPanel>
+                  <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='密码锁'/>
+
+                  <Border Style='{StaticResource SettingsCard}' Tag='SettingsToggle'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='启用自动锁定'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='启动、重开窗口、最小化时需解锁'/>
+                      </StackPanel>
+                      <CheckBox x:Name='chkAutoLock' Grid.Row='0' Grid.Column='1' HorizontalAlignment='Right' VerticalAlignment='Center'
+                                AutomationProperties.Name='启用自动锁定'/>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCard'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='密码锁保护'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='密码锁保护界面；历史由当前 Windows 用户加密，与密码锁独立，配置和日志仍需妥善保护。自动锁定默认关闭，也可手动立即锁定。'/>
+                      </StackPanel>
+                      <StackPanel Grid.Row='0' Grid.Column='1' Orientation='Horizontal' HorizontalAlignment='Right' VerticalAlignment='Center'>
+                        <Button x:Name='btnSecurity' Style='{StaticResource SecondaryBtn}' Content='设置密码锁'/>
+                        <Button x:Name='btnDisableLock' Style='{StaticResource SecondaryBtn}' Content='关闭密码锁' Margin='8,0,0,0'/>
+                        <Button x:Name='btnLock' Style='{StaticResource SecondaryBtn}' Content='立即锁定' Margin='8,0,0,0'/>
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </StackPanel>
+              </Border>
+
+            </StackPanel>
           </ScrollViewer>
         </Grid>
 
@@ -1327,11 +1758,14 @@ namespace Codepass
               </WrapPanel>
               <TextBlock x:Name='historyRetentionHint' Text='保留时间不代表验证码有效期；0 停用时间清理，仍最多 100 条。不删除邮箱邮件。' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,0,0,8'/>
               </StackPanel>
-            <WrapPanel>
-                <Button x:Name='btnClear' Style='{StaticResource SecondaryBtn}' Content='清空全部记录'/>
-              <TextBlock x:Name='historyKeyboardHint' Style='{StaticResource Hint}' Text='Tab 选择操作 · Enter 执行' Margin='14,0,0,0'/>
-              <TextBlock x:Name='lblCount' Style='{StaticResource Hint}' Margin='14,0,0,0' Text='共 0 条'/>
-            </WrapPanel>
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+              <WrapPanel Grid.Column='0' VerticalAlignment='Center'>
+                <TextBlock x:Name='historyKeyboardHint' Style='{StaticResource Hint}' Text='Tab 选择操作 · Enter 执行' Margin='0,0,14,0'/>
+                <TextBlock x:Name='lblCount' Style='{StaticResource Hint}' Text='共 0 条'/>
+              </WrapPanel>
+              <Button x:Name='btnClear' Grid.Column='1' Style='{StaticResource SecondaryBtn}' Content='清空全部记录' HorizontalAlignment='Right' VerticalAlignment='Center'/>
+            </Grid>
             </StackPanel>
           </Border>
         </Grid>
@@ -1344,12 +1778,22 @@ namespace Codepass
                     <TextBlock x:Name='lblAboutVersion' Foreground='#E4000000' FontSize='14' Text='codepass'/>
                      <WrapPanel Margin='0,16,0,0'>
                       <Button x:Name='btnGithub' Style='{StaticResource SecondaryBtn}' Content='打开 GitHub 主页'/>
-                      <Button x:Name='btnUpdate' Style='{StaticResource SecondaryBtn}' Content='检查更新' Margin='10,0,0,0'/>
+                      <Button x:Name='btnUpdate' Style='{StaticResource SecondaryBtn}' Content='检查更新' Margin='8,0,0,0'/>
                      </WrapPanel>
                     <TextBlock x:Name='lblUpdateStatus' Style='{StaticResource Hint}' TextWrapping='Wrap' Margin='0,10,0,0'
-                               Text='尚未检查更新'/>
+                               Text='检查新版后可自动下载安装，替换程序并重启；配置和记录保留。'/>
                   </StackPanel>
                 </Border>
+                 <Border Style='{StaticResource Card}'>
+                   <StackPanel>
+                     <TextBlock Style='{StaticResource CardTitle}' Text='设置迁移'/>
+                     <TextBlock Style='{StaticResource Hint}' TextWrapping='Wrap' Text='导入或导出配置文件，用于换机迁移与备份；排障请用上方的脱敏诊断。'/>
+                     <WrapPanel Margin='0,14,0,0'>
+                       <Button x:Name='btnImport' Style='{StaticResource SecondaryBtn}' Content='导入设置'/>
+                       <Button x:Name='btnExport' Style='{StaticResource SecondaryBtn}' Content='导出设置' Margin='8,0,0,0'/>
+                     </WrapPanel>
+                   </StackPanel>
+                 </Border>
                  <Border Style='{StaticResource Card}'>
                    <StackPanel>
                      <TextBlock Style='{StaticResource CardTitle}' Text='排障与诊断'/>
@@ -1371,11 +1815,16 @@ namespace Codepass
          <StackPanel Width='360' HorizontalAlignment='Center' VerticalAlignment='Center'>
            <TextBlock Text='程序已锁定' FontSize='20' FontWeight='SemiBold' Foreground='#E4000000' HorizontalAlignment='Center'/>
            <TextBlock Text='请输入密码后继续使用' Style='{StaticResource Hint}' HorizontalAlignment='Center' Margin='0,10,0,16'/>
-             <StackPanel Orientation='Horizontal'>
-              <PasswordBox x:Name='txtUnlockPassword' Style='{StaticResource PasswordInput}' Width='270'/>
-              <TextBox x:Name='txtUnlockPlain' Style='{StaticResource Input}' Width='270' Visibility='Collapsed'/>
-              <Button x:Name='btnUnlockEye' Style='{StaticResource SecondaryBtn}' Content='显示' Width='68' Margin='8,0,0,0'/>
-            </StackPanel>
+             <Border Style='{StaticResource InputAddon}' Width='300' HorizontalAlignment='Center'>
+               <Grid>
+                 <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
+                 <Grid Grid.Column='0'>
+                   <PasswordBox x:Name='txtUnlockPassword' Style='{StaticResource InnerPassword}'/>
+                   <TextBox x:Name='txtUnlockPlain' Style='{StaticResource InnerInput}' Visibility='Collapsed'/>
+                 </Grid>
+                 <Button x:Name='btnUnlockEye' Grid.Column='1' Style='{StaticResource InlineIconBtn}' AutomationProperties.Name='显示或隐藏密码'/>
+               </Grid>
+             </Border>
            <Button x:Name='btnUnlock' Style='{StaticResource PrimaryBtn}' Content='解锁' Margin='0,14,0,0'/>
            <TextBlock x:Name='lblUnlockError' Foreground='#C42B1C' FontSize='12' TextAlignment='Center' Margin='0,10,0,0'/>
          </StackPanel>

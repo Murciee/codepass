@@ -93,23 +93,50 @@ namespace Codepass
             }
         }
 
-         void CheckUpdate()
+         Updater.ReleaseInfo pendingUpdate;
+
+         internal void CheckUpdate()
          {
-             if (updateBusy) return;
-             updateBusy = true;
-              if (btnUpdate != null) btnUpdate.IsEnabled = false;
-             SetUpdateStatus("正在检查更新…");
-             Updater.CheckForUpdate(
-                 delegate(string s) { SetUpdateStatus(s); },
-                 delegate
-                {
-                    // 未更新或更新失败：恢复按钮
-                     updateBusy = false;
-                     Dispatcher.BeginInvoke(new Action(delegate
-                     {
-                          if (btnUpdate != null) btnUpdate.IsEnabled = true;
-                     }));
-                 });
+              if (updateBusy) return;
+              updateBusy = true;
+               if (btnUpdate != null) btnUpdate.IsEnabled = false;
+              if (pendingUpdate != null)
+              {
+                  Updater.DownloadUpdate(pendingUpdate, SetUpdateStatus,
+                      delegate(Updater.InstallPlan plan)
+                      {
+                          Dispatcher.Invoke(new Action(delegate
+                          {
+                              SetUpdateStatus("下载校验完成，正在重启并安装更新…");
+                              Updater.StartInstaller(plan);
+                              if (!Program.QuitApp())
+                              {
+                                  Updater.CancelInstall(plan);
+                                  SetUpdateStatus("程序未退出，更新已取消；可点击按钮重试。");
+                              }
+                          }));
+                      }, UpdateFinished);
+                  return;
+              }
+              SetUpdateStatus("正在检查更新…");
+              Updater.CheckForUpdate(
+                  delegate(string s) { SetUpdateStatus(s); },
+                  delegate(Updater.ReleaseInfo release)
+                  {
+                      Dispatcher.BeginInvoke(new Action(delegate { pendingUpdate = release; }));
+                  }, UpdateFinished);
+          }
+
+         void UpdateFinished()
+         {
+             if (Dispatcher.HasShutdownStarted) return;
+             Dispatcher.BeginInvoke(new Action(delegate
+             {
+                 updateBusy = false;
+                 if (btnUpdate == null) return;
+                 btnUpdate.Content = pendingUpdate == null ? "检查更新" : "下载并更新";
+                 btnUpdate.IsEnabled = true;
+             }));
          }
 
          void SetUpdateStatus(string text)

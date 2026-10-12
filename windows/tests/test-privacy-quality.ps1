@@ -127,7 +127,7 @@ Assert 'layout:password-card-visible' ($window.Content.FindName('cardSecurity').
 $cfg.EmailPrivacyMode=1
 [void](Call $windowType 'LoadValues' $window @())
 Assert 'privacy:email-selector-loads-saved-mode' ($window.Content.FindName('cmbEmailPrivacy').SelectedIndex -eq 1)
-Assert 'status:independent-lines-present' ($null -ne $window.Content.FindName('lblEmailFolders') -and $null -ne $window.Content.FindName('lblEmailProcessing'))
+Assert 'status:email-status-lines-removed' ($null -eq $window.Content.FindName('lblEmailFolders') -and $null -eq $window.Content.FindName('lblEmailProcessing') -and $null -eq $window.Content.FindName('lblEmailStatus'))
 Assert 'status:test-has-own-result-line' ($null -ne $window.Content.FindName('lblEmailTestResult'))
 Assert 'storage:banner-outside-email-card' (-not [Windows.LogicalTreeHelper]::GetParent($window.Content.FindName('storageErrorBanner')).Equals($window.Content.FindName('cardEmail').Child))
 Assert 'qq:disabled-without-configured-mailbox' (-not $window.Content.FindName('chkQqPopup').IsEnabled)

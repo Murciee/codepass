@@ -88,15 +88,15 @@ namespace Codepass
 
          void BuildSecretFields(FrameworkElement root)
          {
-             Style passwordStyle = root.Resources["PasswordInput"] as Style;
-             Style inputStyle = root.Resources["Input"] as Style;
-             Style buttonStyle = root.Resources["SecondaryBtn"] as Style;
+             Style passwordStyle = root.Resources["InnerPassword"] as Style;
+             Style inputStyle = root.Resources["InnerInput"] as Style;
+             Style iconStyle = root.Resources["InlineIconBtn"] as Style;
              StackPanel tokenHost = Find<StackPanel>(root, "tokenHost");
              StackPanel ntfyHost = Find<StackPanel>(root, "ntfyTokenHost");
              StackPanel emailAuthHost = Find<StackPanel>(root, "emailAuthHost");
-             fldToken = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
-              fldNtfyToken = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
-              fldEmailAuth = new SecretField(passwordStyle, inputStyle, buttonStyle, 300);
+             fldToken = new SecretField(passwordStyle, inputStyle, iconStyle);
+              fldNtfyToken = new SecretField(passwordStyle, inputStyle, iconStyle);
+              fldEmailAuth = new SecretField(passwordStyle, inputStyle, iconStyle);
                  AttachSecret(tokenHost, fldToken, "局域网接收必填");
                AttachSecret(ntfyHost, fldNtfyToken, "私有服务器可选");
                if (emailAuthHost != null) fldEmailAuth.Attach(emailAuthHost);

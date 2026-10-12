@@ -104,33 +104,56 @@ namespace Codepass
               label.Foreground = MakeBrush(0x61, 0x61, 0x61);
               panel.Children.Add(label);
 
+               FrameworkElement ownerRoot = owner == null ? null : owner.Content as FrameworkElement;
+               Style addonStyle = ownerRoot == null ? null : ownerRoot.TryFindResource("InputAddon") as Style;
                StackPanel field = new StackPanel();
                field.Orientation = Orientation.Horizontal;
                field.Margin = new Thickness(0, 14, 0, 0);
 
                box = new PasswordBox();
-               box.Template = CodepassDialog.CreatePasswordTemplate();
-               box.Height = 32;
-               box.Width = 240;
-               box.VerticalContentAlignment = VerticalAlignment.Center;
-               field.Children.Add(box);
-
                TextBox plain = new TextBox();
-               plain.Template = CodepassDialog.CreateFieldTemplate(typeof(TextBox));
-               plain.Height = 32;
-               plain.Width = 240;
-               plain.VerticalContentAlignment = VerticalAlignment.Center;
-               plain.Visibility = Visibility.Collapsed;
-               field.Children.Add(plain);
-
                Button toggle = new Button();
-               FrameworkElement ownerRoot = owner == null ? null : owner.Content as FrameworkElement;
-               toggle.Style = ownerRoot == null ? null : ownerRoot.TryFindResource("SecondaryBtn") as Style;
-               toggle.Content = "显示";
-               toggle.Width = 68;
-               toggle.Margin = new Thickness(8, 0, 0, 0);
-               toggle.VerticalAlignment = VerticalAlignment.Center;
-               field.Children.Add(toggle);
+               if (addonStyle != null)
+               {
+                   // 和主界面同一套控件：内嵌显示按钮（眼睛）的密钥框。
+                   box.Style = ownerRoot.TryFindResource("InnerPassword") as Style;
+                   plain.Style = ownerRoot.TryFindResource("InnerInput") as Style;
+                   toggle.Style = ownerRoot.TryFindResource("InlineIconBtn") as Style;
+                   Border addon = new Border();
+                   addon.Style = addonStyle;
+                   addon.Width = 300;
+                   addon.HorizontalAlignment = HorizontalAlignment.Left;
+                   Grid inner = new Grid();
+                   inner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                   inner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                   Grid holder = new Grid();
+                   holder.Children.Add(box);
+                   holder.Children.Add(plain);
+                   inner.Children.Add(holder);
+                   Grid.SetColumn(toggle, 1);
+                   inner.Children.Add(toggle);
+                   addon.Child = inner;
+                   field.Children.Add(addon);
+               }
+               else
+               {
+                   box.Template = CodepassDialog.CreatePasswordTemplate();
+                   box.Height = 32;
+                   box.Width = 240;
+                   box.VerticalContentAlignment = VerticalAlignment.Center;
+                   plain.Template = CodepassDialog.CreateFieldTemplate(typeof(TextBox));
+                   plain.Height = 32;
+                   plain.Width = 240;
+                   plain.VerticalContentAlignment = VerticalAlignment.Center;
+                   toggle.Style = ownerRoot == null ? null : ownerRoot.TryFindResource("SecondaryBtn") as Style;
+                   toggle.Width = 68;
+                   toggle.Margin = new Thickness(8, 0, 0, 0);
+                   toggle.VerticalAlignment = VerticalAlignment.Center;
+                   field.Children.Add(box);
+                   field.Children.Add(plain);
+                   field.Children.Add(toggle);
+               }
+               plain.Visibility = Visibility.Collapsed;
 
                 revealer = new PasswordRevealer(box, plain, toggle);
 

@@ -489,11 +489,11 @@ $cfg.LockEnabled=$false; $cfg.AutoLockEnabled=$false; $overlay.Visibility=[Windo
 $empty=[Activator]::CreateInstance($itemType,$true); $empty.Channel='email'; $empty.Raw=''
 $emptyText=Call $windowType 'HistoryRawText' $null @($empty)
 Assert 'ui:unsaved-email-explained' ($emptyText.Length -gt 10)
-Assert 'ui:recheck-button-present' ($null -ne $window.Content.FindName('btnEmailRecheck'))
-$status=$window.Content.FindName('lblEmailStatus')
+Assert 'ui:email-status-card-removed' ($null -eq $window.Content.FindName('btnEmailRecheck') -and $null -eq $window.Content.FindName('lblEmailStatus') -and $null -eq $window.Content.FindName('lblEmailProcessing') -and $null -eq $window.Content.FindName('cardEmailStatus'))
+Assert 'ui:email-test-result-label-present' ($null -ne $window.Content.FindName('lblEmailTestResult'))
 $cfg.EmailEnabled=$true
 [void](Call $windowType 'UpdateEmailStatus' $window @())
-Assert 'ui:last-mail-result-visible' ($window.Content.FindName('lblEmailProcessing').Text.Contains($watcher.GetField('LastMailResult',$flags).GetValue($null)))
+Assert 'ui:qq-status-follows-configuration' ($window.Content.FindName('lblQqStatus').Text.Length -gt 0)
 $cfg.EmailEnabled=$false
 # Render only synthetic rows, disabling startup opacity animation.
 $window.Content.Opacity=1

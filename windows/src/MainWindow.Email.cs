@@ -60,14 +60,14 @@ namespace Codepass
                  emailAuthHint.Text = cfg.EmailPasswordRequired ? "请重新填写 IMAP 授权码 / 应用专用密码"
                      : cfg.EmailAuthUndecryptable
                      ? "已失效：换机或换了 Windows 账户，请重新填写"
-                     : gmail ? "填写 Google 生成的 16 位应用专用密码，不是账号密码"
-                     : "填写 IMAP 授权码 / 应用专用密码，不是邮箱网页登录密码";
+                     : gmail ? "使用 Google 16 位应用密码"
+                     : "使用授权码 / 应用密码，非登录密码";
              if (emailProviderHint != null)
                  emailProviderHint.Text = gmail
-                      ? "Gmail：先开启两步验证，再生成应用专用密码。部分组织账号或高级保护账号无法生成应用专用密码。"
+                      ? "Gmail：开启两步验证后生成应用密码。"
                      : provider >= 0 && provider <= 2
-                     ? "QQ / 163 / 126 邮箱：先在网页版邮箱设置中开启 IMAP 服务，再生成授权码。"
-                      : "请使用服务商允许的 IMAP 授权码或应用专用密码。";
+                     ? "QQ / 163 / 126：开启 IMAP 后获取授权码。"
+                      : "使用 IMAP 授权码或应用密码。";
               if (btnEmailAuthHelp != null)
                   btnEmailAuthHelp.Visibility = gmail ? Visibility.Visible : Visibility.Collapsed;
               Button guide = Find<Button>((FrameworkElement)Content, "btnEmailGuide");
@@ -117,6 +117,13 @@ namespace Codepass
          void AddEmailKeywords()
          {
              if (txtEmailKeywordAdd == null || txtEmailKeywords == null) return;
+             // 平时不显示输入框：第一次点“添加”先展开并聚焦，输入后再点（或回车）才写入。
+             if (txtEmailKeywordAdd.Visibility != Visibility.Visible)
+             {
+                 txtEmailKeywordAdd.Visibility = Visibility.Visible;
+                 txtEmailKeywordAdd.Focus();
+                 return;
+             }
              string text = string.Join("\n", EmailKeywordList(txtEmailKeywords.Text + "\n" + txtEmailKeywordAdd.Text).ToArray());
              string normalized, error;
              if (!MailRules.NormalizeLines(text, out normalized, out error)) { ShowToast("主题关键词无效：" + error); return; }
@@ -136,28 +143,13 @@ namespace Codepass
 
          public void UpdateEmailStatus()
          {
-             if (lblEmailStatus == null) return;
-             lblEmailStatus.Text = cfg.EmailPasswordRequired ? "请重新填写应用专用密码，邮箱接收已关闭"
-                 : !cfg.EmailEnabled ? "邮箱接收已关闭"
-                 : !Program.EmailConfigured() ? "邮箱未配置完整" : "收件箱：" + EmailWatcher.Status;
-             if (EmailWatcher.LastCheckUtc != DateTime.MinValue)
-                 lblEmailStatus.Text += " · 最后检查 " + EmailWatcher.LastCheckUtc.ToLocalTime().ToString("HH:mm:ss");
-             if (lblEmailFolders != null) lblEmailFolders.Text = !Program.EmailConfigured() ? "分类目录：待启用"
-                 : "分类目录：" + EmailWatcher.FolderStatus + (EmailWatcher.LastFolderCheckUtc == DateTime.MinValue ? ""
-                     : " · 最后成功 " + EmailWatcher.LastFolderCheckUtc.ToLocalTime().ToString("HH:mm:ss"));
-             if (lblEmailProcessing != null) lblEmailProcessing.Text = cfg.EmailEnabled
-                 ? "收件箱处理：" + EmailWatcher.LastMailResult + "\n分类目录处理：" + EmailWatcher.LastFolderResult + "\n" + EmailWatcher.RecentSummary : "";
-             Button recheck = Find<Button>((FrameworkElement)Content, "btnEmailRecheck");
-             if (recheck != null) { recheck.IsEnabled = Program.EmailConfigured() && !EmailWatcher.RecentCheckPending;
-                 recheck.Content = EmailWatcher.RecentCheckPending ? "正在复查近 30 分钟…" : "重新检查近 30 分钟"; }
              string storage = string.Join("\n", new string[] { Config.LastSaveError ?? "", History.LastSaveError ?? "" }).Trim();
              if (lblStorageError != null) lblStorageError.Text = storage;
              Border banner = Find<Border>((FrameworkElement)Content, "storageErrorBanner");
              if (banner != null) banner.Visibility = storage.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-             if (lblQqStatus != null) lblQqStatus.Text = !Program.EmailConfigured() ? "请先配置并启用邮箱；当前不会触发检查"
+             if (lblQqStatus != null) lblQqStatus.Text = !Program.EmailConfigured() ? "请先配置并启用邮箱"
                  : !cfg.QqPopupEnabled ? "联动已关闭" : "监测中 · 最近提醒 " + QqPopupWatcher.LastSignalText;
               if (chkQqPopup != null) chkQqPopup.IsEnabled = Program.EmailConfigured();
-              lblEmailStatus.Foreground = !cfg.EmailEnabled ? FgFaint : Program.EmailConfigured() && EmailWatcher.Status.StartsWith("已连接") ? Brushes.DarkGreen : AccentTx;
               UpdateReceiveSummary();
          }
 

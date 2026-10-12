@@ -27,6 +27,7 @@ namespace Codepass
           readonly PasswordBox masked;
           readonly TextBox plain;
           readonly Button toggle;
+          RevealIcon.State icon;
           bool revealed;
           bool syncing;
 
@@ -37,12 +38,13 @@ namespace Codepass
               this.toggle = toggle;
                plain.Visibility = Visibility.Collapsed;
                plain.Text = masked.Password;
+               icon = RevealIcon.Build(toggle);
                UpdateToggleVisual();
               masked.PasswordChanged += delegate
               {
                   if (syncing || revealed) return;
                   syncing = true;
-                  plain.Text = masked.Password;
+                  if (plain.Text != masked.Password) plain.Text = masked.Password;
                   syncing = false;
               };
               plain.TextChanged += delegate
@@ -74,23 +76,23 @@ namespace Codepass
                   plain.Text = masked.Password;
                   masked.Visibility = Visibility.Collapsed;
                   plain.Visibility = Visibility.Visible;
-                  plain.Focus();
-                  plain.CaretIndex = plain.Text.Length;
+                  RevealIcon.SetRevealed(icon, true);
+                  PasswordInputFocus.AtEnd(plain, delegate { return revealed; });
               }
               else
               {
-                  masked.Password = plain.Text;
+                  if (masked.Password != plain.Text) masked.Password = plain.Text;
                   plain.Visibility = Visibility.Collapsed;
                   masked.Visibility = Visibility.Visible;
-                  masked.Focus();
+                  PasswordInputFocus.AtEnd(masked, delegate { return !revealed; });
               }
                 UpdateToggleVisual();
             }
 
             void UpdateToggleVisual()
             {
-                toggle.Content = revealed ? "隐藏" : "显示";
                 toggle.ToolTip = revealed ? "隐藏密码" : "显示密码";
+                RevealIcon.SetRevealed(icon, revealed);
             }
       }
 }

@@ -121,6 +121,7 @@ namespace Codepass
         [STAThread]
         static void Main(string[] args)
         {
+            if (Updater.TryRunInstaller(args)) return;
             bool silent = IsSilentStartup(args), createdNew;
             singleInstance = new Mutex(true, "Codepass_SingleInstance", out createdNew);
             if (!createdNew)
@@ -164,6 +165,7 @@ namespace Codepass
                 Clipboard.Dispose(); return;
             }
             BuildTray(); Http.Start(); if (cfg.NtfyTopic.Length > 0) Ntfy.Start(); RefreshEmailWatchers();
+            Updater.CleanupCompletedUpdate(args);
             Log.Write("started.");
             historyRetentionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             historyRetentionTimer.Tick += delegate
@@ -245,24 +247,148 @@ namespace Codepass
             catch (IOException)
             { if (cfg != null) ExpireLatestReceipt(cfg.HistoryRetentionMinutes, DateTime.UtcNow); EmailStatusChanged(); }
         }
+        [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, int count);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool DestroyIcon(IntPtr handle);
+
         static void BuildTray()
         {
             tray = new System.Windows.Forms.NotifyIcon();
-            try
-            {
-                Icon icon = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
-                tray.Icon = icon == null ? (Icon)SystemIcons.Application.Clone() : (Icon)icon.Clone();
-                if (icon != null) icon.Dispose();
-            }
-            catch { tray.Icon = (Icon)SystemIcons.Application.Clone(); }
+            // 托盘按 16px 显示：优先取 exe 里真正的 16px 帧（1:1 显示），避免把 32px 帧缩放糊掉。
+            Icon icon = SmallAppIcon();
+            tray.Icon = icon == null ? (Icon)SystemIcons.Application.Clone() : (Icon)icon.Clone();
+            if (icon != null) icon.Dispose();
             tray.Text = "codepass"; tray.Visible = true;
             System.Windows.Forms.ContextMenuStrip menu = new System.Windows.Forms.ContextMenuStrip();
+            menu.Renderer = new TrayMenuRenderer();
             menu.Items.Add("复制最新验证码", null, delegate { CopyLatestCode(); });
+            menu.Items.Add("查看记录", null, delegate { ShowMainWindowAt("history"); });
+            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
             System.Windows.Forms.ToolStripMenuItem pause = new System.Windows.Forms.ToolStripMenuItem("暂停自动复制 15 分钟");
             pause.Click += delegate { RuntimeStatus.ToggleAutoCopyPause(); }; menu.Items.Add(pause);
+            menu.Items.Add("清空记录", null, delegate { ClearHistoryFromTray(); });
+            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+            menu.Items.Add("打开设置", null, delegate { ShowMainWindowAt("general"); });
+            menu.Items.Add("显示主窗口", null, delegate { ShowMainWindow(); });
+            menu.Items.Add("检查更新", null, delegate { ShowMainWindowAt("about"); CheckUpdateFromTray(); });
+            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+            menu.Items.Add("退出", null, delegate { QuitApp(); });
             menu.Opening += delegate { pause.Text = RuntimeStatus.AutoCopyPaused ? "恢复自动复制" : "暂停自动复制 15 分钟"; };
-            menu.Items.Add(new System.Windows.Forms.ToolStripSeparator()); menu.Items.Add("退出", null, delegate { QuitApp(); });
             tray.ContextMenuStrip = menu; trayMenu = menu; tray.DoubleClick += delegate { ShowMainWindow(); };
+        }
+
+        static void ShowMainWindowAt(string section)
+        {
+            try
+            {
+                CreateMainWindow();
+                if (mainWindow != null && mainWindow.Dispatcher.CheckAccess()) mainWindow.SelectSection(section);
+                mainWindow.ShowFromTray();
+            }
+            catch (Exception ex) { Log.Write("window open at section failed: " + ex.GetType().Name); }
+        }
+
+        static void ClearHistoryFromTray()
+        {
+            try
+            {
+                CreateMainWindow();
+                if (mainWindow != null && mainWindow.Dispatcher.CheckAccess()) mainWindow.ClearHistoryFromTray();
+            }
+            catch (Exception ex) { Log.Write("clear history from tray failed: " + ex.GetType().Name); }
+        }
+
+        static void CheckUpdateFromTray()
+        {
+            try
+            {
+                CreateMainWindow();
+                if (mainWindow != null && mainWindow.Dispatcher.CheckAccess()) mainWindow.CheckUpdate();
+            }
+            catch (Exception ex) { Log.Write("check update from tray failed: " + ex.GetType().Name); }
+        }
+
+        sealed class TrayMenuRenderer : System.Windows.Forms.ToolStripProfessionalRenderer
+        {
+            public TrayMenuRenderer() : base(new TrayMenuColors()) { RoundedEdges = true; }
+
+            protected override void OnRenderToolStripBorder(System.Windows.Forms.ToolStripRenderEventArgs e)
+            {
+                if (e.ToolStrip is System.Windows.Forms.ContextMenuStrip)
+                {
+                    using (System.Drawing.Drawing2D.GraphicsPath path = RoundedRect(new Rectangle(0, 0, e.ToolStrip.Width - 1, e.ToolStrip.Height - 1), 8))
+                    using (Pen pen = new Pen(Color.FromArgb(0xE5, 0xE5, 0xE5), 1))
+                    {
+                        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                        e.Graphics.DrawPath(pen, path);
+                    }
+                }
+            }
+
+            protected override void OnRenderMenuItemBackground(System.Windows.Forms.ToolStripItemRenderEventArgs e)
+            {
+                if (e.Item.Selected && e.Item.Enabled)
+                {
+                    Rectangle bounds = new Rectangle(2, 0, e.Item.Width - 4, e.Item.Height);
+                    using (SolidBrush brush = new SolidBrush(Color.FromArgb(0xCC, 0xE8, 0xFF)))
+                        e.Graphics.FillRectangle(brush, bounds);
+                }
+            }
+
+            static System.Drawing.Drawing2D.GraphicsPath RoundedRect(Rectangle bounds, int radius)
+            {
+                int diameter = radius * 2;
+                System.Drawing.Drawing2D.GraphicsPath path = new System.Drawing.Drawing2D.GraphicsPath();
+                path.AddArc(bounds.X, bounds.Y, diameter, diameter, 180, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Y, diameter, diameter, 270, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+                path.AddArc(bounds.X, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                return path;
+            }
+        }
+
+        sealed class TrayMenuColors : System.Windows.Forms.ProfessionalColorTable
+        {
+            public override Color ToolStripDropDownBackground { get { return Color.FromArgb(0xF3, 0xF3, 0xF3); } }
+            public override Color ImageMarginGradientBegin { get { return Color.FromArgb(0xF3, 0xF3, 0xF3); } }
+            public override Color ImageMarginGradientMiddle { get { return Color.FromArgb(0xF3, 0xF3, 0xF3); } }
+            public override Color ImageMarginGradientEnd { get { return Color.FromArgb(0xF3, 0xF3, 0xF3); } }
+            public override Color MenuBorder { get { return Color.FromArgb(0xE5, 0xE5, 0xE5); } }
+            public override Color MenuItemBorder { get { return Color.Transparent; } }
+            public override Color MenuItemSelected { get { return Color.FromArgb(0xCC, 0xE8, 0xFF); } }
+            public override Color MenuItemSelectedGradientBegin { get { return Color.FromArgb(0xCC, 0xE8, 0xFF); } }
+            public override Color MenuItemSelectedGradientEnd { get { return Color.FromArgb(0xCC, 0xE8, 0xFF); } }
+            public override Color SeparatorDark { get { return Color.FromArgb(0xE5, 0xE5, 0xE5); } }
+            public override Color SeparatorLight { get { return Color.FromArgb(0xF3, 0xF3, 0xF3); } }
+        }
+
+        /// <summary>托盘/小尺寸用的应用图标：先取 16px 真帧，取不到再退回 exe 关联图标。</summary>
+        static Icon SmallAppIcon()
+        {
+            IntPtr[] small = new IntPtr[1];
+            IntPtr[] large = new IntPtr[1];
+            try
+            {
+                if (ExtractIconEx(Assembly.GetExecutingAssembly().Location, 0, large, small, 1) > 0 && small[0] != IntPtr.Zero)
+                {
+                    using (Icon source = Icon.FromHandle(small[0])) return (Icon)source.Clone();
+                }
+            }
+            catch { }
+            finally
+            {
+                try { if (small[0] != IntPtr.Zero) DestroyIcon(small[0]); } catch { }
+                try { if (large[0] != IntPtr.Zero) DestroyIcon(large[0]); } catch { }
+            }
+            try
+            {
+                Icon fallback = Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
+                if (fallback != null) return fallback;
+            }
+            catch { }
+            return null;
         }
 
         internal static List<string> DetectLocalIpList()

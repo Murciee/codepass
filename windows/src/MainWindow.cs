@@ -43,8 +43,8 @@ namespace Codepass
         TextBox txtEmailKeywordAdd;
         WrapPanel emailKeywordTags;
         CheckBox chkEmailSaveBody;
-        TextBlock lblEmailStatus, lblEmailPreviewResult;
-        TextBlock lblEmailFolders, lblEmailProcessing, lblEmailTestResult, lblStorageError, lblQqStatus;
+        TextBlock lblEmailPreviewResult;
+        TextBlock lblEmailTestResult, lblStorageError, lblQqStatus;
         TextBox txtEmailSubjectPreview;
         Button btnEmailTest;
         CancellationTokenSource emailTestCancel;
@@ -62,7 +62,7 @@ namespace Codepass
          Grid pageSet, pageLog, pageAbout;
          ScrollViewer settingsScroll;
            Border cardNetwork, cardGeneral, cardNotify, cardSecurity, cardMore, cardEmail, cardEmailFilters, cardQqPopup;
-        Border cardEmailStatus, cardNtfy, cardSmsFilters;
+        Border cardNtfy, cardSmsFilters;
         Border dragBar;
         Border lockOverlay;
          PasswordBox txtUnlockPassword;
@@ -173,7 +173,6 @@ namespace Codepass
              txtHistorySearch = Find<TextBox>(root, "txtHistorySearch");
              txtHistoryRetention = Find<TextBox>(root, "txtHistoryRetention");
              tabAllHistory = Find<Button>(root, "tabAllHistory");
-             cardEmailStatus = Find<Border>(root, "cardEmailStatus");
              cardNtfy = Find<Border>(root, "cardNtfy");
              cardSmsFilters = Find<Border>(root, "cardSmsFilters");
              txtPcIp       = Find<TextBox>(root, "txtPcIp");
@@ -231,7 +230,6 @@ namespace Codepass
              chkEmailNotify = Find<CheckBox>(root, "chkEmailNotify");
               chkEmailAutoCopy = Find<CheckBox>(root, "chkEmailAutoCopy");
               chkEmailSaveBody = Find<CheckBox>(root, "chkEmailSaveBody");
-              lblEmailStatus = Find<TextBlock>(root, "lblEmailStatus");
               btnEmailTest = Find<Button>(root, "btnEmailTest");
               txtEmailSubjectPreview = Find<TextBox>(root, "txtEmailSubjectPreview");
               lblEmailPreviewResult = Find<TextBlock>(root, "lblEmailPreviewResult");
@@ -253,8 +251,6 @@ namespace Codepass
               lblUpdateStatus = Find<TextBlock>(root, "lblUpdateStatus");
               if (lblAboutVersion != null)
                    lblAboutVersion.Text = "codepass v" + Updater.AppVersion;
-              lblEmailFolders = Find<TextBlock>(root, "lblEmailFolders");
-              lblEmailProcessing = Find<TextBlock>(root, "lblEmailProcessing");
               lblEmailTestResult = Find<TextBlock>(root, "lblEmailTestResult");
               lblStorageError = Find<TextBlock>(root, "lblStorageError");
               lblQqStatus = Find<TextBlock>(root, "lblQqStatus");
@@ -263,8 +259,6 @@ namespace Codepass
               InitializeResponsiveForms(pageSet);
               settingsScroll.SizeChanged += delegate { UpdateResponsiveForms(); };
               Loaded += delegate { UpdateResponsiveForms(); };
-              TextBlock qqRisk = Find<TextBlock>(root, "lblQqPopupRisk");
-              if (qqRisk != null) qqRisk.Text = "仅以邮件提醒窗口标题唤醒 IMAP；不读取弹窗或聊天正文，不直接提取验证码。需要先配置邮箱，最终仍执行主题、发件人与时效规则。";
              if (btnLock != null) btnLock.Click += delegate { LockWindow(); };
 
             // 顶栏拖动 + 窗口按钮
@@ -316,13 +310,6 @@ namespace Codepass
                      catch { ShowToast("保存仍未完成，请检查文件权限与磁盘空间"); }
                      UpdateEmailStatus();
                  });
-                Wire(root, "btnEmailRecheck", delegate
-                {
-                     if (!ApplySection(SettingsSection.EmailRules)) return;
-                    if (!Program.EmailConfigured()) { ShowToast("请先填写邮箱凭据并开启邮箱接收"); return; }
-                    EmailWatcher.RequestRecentCheck();
-                    ShowToast("已请求复查近 30 分钟邮件，最多 200 封候选邮件");
-                });
                 Wire(root, "btnEmailGuide", delegate
                 {
                     string guide = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GMAIL_APP_PASSWORD.md");
@@ -413,10 +400,19 @@ namespace Codepass
                if (txtEmailServer != null) txtEmailServer.TextChanged += delegate { UpdateEmailAuthHint(); };
                if (txtEmailKeywords != null) txtEmailKeywords.TextChanged += delegate { RenderEmailKeywordTags(); };
                if (txtEmailSubjectPreview != null) txtEmailSubjectPreview.TextChanged += delegate { UpdateEmailPreview(); };
-               if (txtEmailKeywordAdd != null) txtEmailKeywordAdd.KeyDown += delegate(object s, KeyEventArgs e)
+               if (txtEmailKeywordAdd != null)
                {
-                   if (e.Key == Key.Return) { AddEmailKeywords(); e.Handled = true; }
-               };
+                   txtEmailKeywordAdd.KeyDown += delegate(object s, KeyEventArgs e)
+                   {
+                       if (e.Key == Key.Return) { AddEmailKeywords(); e.Handled = true; }
+                       if (e.Key == Key.Escape) { txtEmailKeywordAdd.Clear(); txtEmailKeywordAdd.Visibility = Visibility.Collapsed; e.Handled = true; }
+                   };
+                   // 收起条件：没有内容又失去焦点（有内容时保留输入框）。
+                   txtEmailKeywordAdd.LostKeyboardFocus += delegate
+                   {
+                       if (txtEmailKeywordAdd.Text.Length == 0) txtEmailKeywordAdd.Visibility = Visibility.Collapsed;
+                   };
+               }
          }
 
          void WireMultilineScrolling()
@@ -468,6 +464,7 @@ namespace Codepass
             internal FrameworkElement Element;
             internal int Row, Column;
             internal Thickness Margin;
+            internal HorizontalAlignment Align;
         }
 
         void InitializeResponsiveForms(DependencyObject node)
@@ -485,9 +482,11 @@ namespace Codepass
                     FrameworkElement element = child as FrameworkElement;
                     if (element != null)
                     {
+                        // 表单行的垂直位置只在这里决定：左列标签与右列输入框对齐到同一行中心。
+                        // 标签样式（FieldLabel）不得再自带 Height / Padding / Margin，否则会整体偏离。
                         element.VerticalAlignment = VerticalAlignment.Top;
                         element.Margin = Grid.GetColumn(element) == 0 ? new Thickness(0, 14, 14, 0) : new Thickness(0, 6, 0, 8);
-                        form.Cells.Add(new FormCell { Element = element, Row = Grid.GetRow(element), Column = Grid.GetColumn(element), Margin = element.Margin });
+                        form.Cells.Add(new FormCell { Element = element, Row = Grid.GetRow(element), Column = Grid.GetColumn(element), Margin = element.Margin, Align = element.HorizontalAlignment });
                     }
                 }
                 responsiveForms.Add(form);
@@ -499,8 +498,9 @@ namespace Codepass
         void UpdateResponsiveForms()
         {
             if (settingsScroll == null || settingsScroll.ActualWidth <= 0) return;
-             bool compact = settingsScroll.ActualWidth < 850;
+             bool compact = settingsScroll.ActualWidth < 520;
              UpdateSettingsFieldWidth(compact);
+             ArrangeSettingsCards(compact);
             foreach (ResponsiveForm form in responsiveForms)
             {
                 if (form.Compact == compact) continue;
@@ -515,6 +515,9 @@ namespace Codepass
                     Grid.SetColumn(cell.Element, compact ? 1 : cell.Column);
                     Grid.SetRow(cell.Element, compact ? cell.Row * 2 + (cell.Column == 0 ? 0 : 1) : cell.Row);
                     cell.Element.Margin = compact ? cell.Column == 0 ? new Thickness(0, 10, 0, 4) : new Thickness(0, 0, 0, 8) : cell.Margin;
+                    // 宽窗口靠右对齐（iOS 风格）；窄窗口标签移到上方，控件跟着回到左侧，勾选项随文字排列。
+                    cell.Element.HorizontalAlignment = compact && (cell.Align == HorizontalAlignment.Right || cell.Element is CheckBox)
+                        ? HorizontalAlignment.Left : cell.Align;
                 }
             }
         }
@@ -530,6 +533,16 @@ namespace Codepass
             Activate();
             Topmost = true;
             Topmost = false;
+        }
+
+        internal void ClearHistoryFromTray()
+        {
+            if (MessageBox.Show(this, "确定清空全部记录？", "确认",
+                   MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK)
+            {
+                try { History.Clear(); RefreshHistory(); }
+                catch (IOException) { ShowToast(History.LastSaveError); }
+            }
         }
 
          public bool ExitApp()

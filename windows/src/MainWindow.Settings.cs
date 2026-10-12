@@ -25,7 +25,7 @@ namespace Codepass
     {
           // ---------- 左侧分类 ----------
 
-          void SelectSection(string section)
+          internal void SelectSection(string section)
           {
               activeSection = section;
              if (pageSet == null) return;
@@ -41,7 +41,6 @@ namespace Codepass
               SetCardState(cardNetwork, general);
               SetCardState(cardNtfy, general);
               SetCardState(cardSmsFilters, general);
-              SetCardState(cardEmailStatus, email);
                SetCardState(cardEmail, email);
                SetCardState(cardEmailFilters, email);
                SetCardState(cardQqPopup, email);
@@ -56,7 +55,7 @@ namespace Codepass
                if (general || email || security)
                {
                    if (settingsScroll != null) settingsScroll.ScrollToTop();
-                    Border target = security ? cardNotify : email ? cardEmailStatus : cardGeneral;
+                    Border target = security ? cardNotify : email ? cardEmail : cardGeneral;
                    if (target != null) target.BringIntoView();
                }
                if (history) RefreshHistory();

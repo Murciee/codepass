@@ -64,6 +64,51 @@ function Pump {
     [void][Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke([Windows.Threading.DispatcherPriority]::ContextIdle,[Action]{ $frame.Continue=$false })
     [Windows.Threading.Dispatcher]::PushFrame($frame)
 }
+function EnterText($box,[string]$text) {
+    $composition=New-Object Windows.Input.TextComposition([Windows.Input.InputManager]::Current,$box,$text)
+    $event=New-Object Windows.Input.TextCompositionEventArgs([Windows.Input.Keyboard]::PrimaryDevice,$composition)
+    $event.RoutedEvent=[Windows.Input.TextCompositionManager]::TextInputEvent
+    $box.RaiseEvent($event)
+    Pump
+}
+function CheckRevealInput($revealer,[string]$name) {
+    $type=$revealer.GetType()
+    $maskedInput=$type.GetField('masked',$flags).GetValue($revealer)
+    $plainInput=$type.GetField('plain',$flags).GetValue($revealer)
+    $eye=$type.GetField('toggle',$flags).GetValue($revealer)
+    if($plainInput.Visibility -eq [Windows.Visibility]::Visible) {
+        $eye.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))); Pump
+    }
+    $expected='123'
+    $maskedInput.Password=$expected
+    for($round=0;$round -lt 3;$round++) {
+        [void]$eye.Focus()
+        $eye.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))); Pump
+        Assert ($name+':plain-caret-'+$round) ($plainInput.CaretIndex -eq $expected.Length -and $plainInput.SelectionLength -eq 0)
+        EnterText $plainInput '4'
+        $expected+='4'
+        Assert ($name+':plain-append-'+$round) ($plainInput.Text -ceq $expected)
+        [void]$eye.Focus()
+        $eye.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))); Pump
+        EnterText $maskedInput '5'
+        $expected+='5'
+        Assert ($name+':masked-append-'+$round) ($maskedInput.Password -ceq $expected)
+    }
+    $expected=('1234567890'*24)
+    $maskedInput.Password=$expected
+    $eye.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))); Pump
+    EnterText $plainInput '7'; $expected+='7'
+    Assert ($name+':long-plain-append') ($plainInput.Text -ceq $expected)
+    $eye.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))); Pump
+    EnterText $maskedInput '8'; $expected+='8'
+    Assert ($name+':long-masked-append') ($maskedInput.Password -ceq $expected)
+    $maskedInput.Password=''
+    $eye.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+    $eye.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent))); Pump
+    EnterText $maskedInput '6'
+    Assert ($name+':empty-rapid-toggle-append') ($maskedInput.Password -ceq '6')
+    $maskedInput.Password=''
+}
 function FlushSearch {
     [void](Call $windowType 'RefreshHistory' $window @())
     Pump
@@ -96,6 +141,11 @@ function WithinViewport($element,$viewport) {
 function CheckControls([string]$section,[string[]]$names) {
     $viewport=$content.FindName('settingsScroll')
     foreach($name in $names) { Assert ('layout:viewport-'+$section+'-'+$name) (WithinViewport ($content.FindName($name)) $viewport) }
+}
+function InSubtree($element,$ancestor) {
+    $node=$element
+    while($node -ne $null) { if([object]::ReferenceEquals($node,$ancestor)) { return $true }; $node=[Windows.LogicalTreeHelper]::GetParent($node) }
+    return $false
 }
 $cfg=[Activator]::CreateInstance($configType,$true)
 $cfg.PcIp='192.0.2.51'
@@ -172,32 +222,44 @@ foreach($size in @(640,1100)) {
     Assert ('history:actions-fit-row-'+$size) (WithinParent $actions)
 }
 Capture 'history-search.png' 1100 760
-$emailInput=$content.FindName('txtEmailAccount'); $emailWrapper=[Windows.LogicalTreeHelper]::GetParent($emailInput); $emailGrid=[Windows.LogicalTreeHelper]::GetParent($emailWrapper)
+$emailInput=$content.FindName('txtEmailAccount')
 [void](Call $windowType 'SelectSection' $window @('email'))
 Capture 'email-default.png' 780 760
-$content.FindName('emailServerAdvanced').IsExpanded=$true
-$content.FindName('emailAdvanced').IsExpanded=$true
-$content.FindName('btnEmailRecheck').Parent.Parent.Parent.IsExpanded=$true
 Layout 780 760
-Assert 'layout:email-labels-above-narrow' ([Windows.Controls.Grid]::GetColumn($emailWrapper) -eq 1 -and [Windows.Controls.Grid]::GetRow($emailWrapper) -eq 7 -and $emailGrid.ColumnDefinitions[0].Width.Value -eq 0)
-Assert 'layout:email-status-before-connection' ($content.FindName('cardEmailStatus').TranslatePoint((New-Object Windows.Point(0,0)),$content).Y -lt $content.FindName('cardEmail').TranslatePoint((New-Object Windows.Point(0,0)),$content).Y)
+Assert 'layout:email-status-card-removed' ($null -eq $content.FindName('cardEmailStatus') -and $null -eq $content.FindName('btnEmailRecheck'))
+Assert 'layout:email-advanced-always-visible' ($content.FindName('emailAdvanced') -is [Windows.Controls.StackPanel] -and $content.FindName('emailAdvanced').IsVisible)
+Assert 'layout:email-poll-compact' ($content.FindName('txtEmailPoll').ActualWidth -le 120)
+Assert 'copy:email-qq-long-description-removed' ($null -eq $content.FindName('lblQqPopupRisk'))
 Assert 'layout:connection-rule-advanced-visible' ($content.FindName('cardEmail').Visibility.ToString() -eq 'Visible' -and $content.FindName('cardEmailFilters').Visibility.ToString() -eq 'Visible' -and $content.FindName('cardQqPopup').Visibility.ToString() -eq 'Visible')
 Assert 'layout:no-horizontal-email-scroll' ($content.FindName('settingsScroll').ExtentWidth -le $content.FindName('settingsScroll').ViewportWidth+1)
 Assert 'layout:email-fields-within-parent' ((WithinParent $emailInput) -and (WithinParent ($content.FindName('cmbEmailProvider'))) -and (WithinParent ($content.FindName('txtEmailServer'))))
-CheckControls 'email-narrow' @('cmbEmailProvider','txtEmailServer','txtEmailAccount','emailAuthHost','txtEmailKeywordAdd','btnEmailKeywordAdd','btnEmailKeywordDefault','txtEmailSenders','chkEmailJunk','chkEmailSaveBody','chkQqPopup','txtEmailPoll','btnEmailTest','btnEmailRecheck')
+CheckControls 'email-narrow' @('cmbEmailProvider','txtEmailServer','txtEmailAccount','emailAuthHost','btnEmailKeywordAdd','btnEmailKeywordDefault','txtEmailSenders','chkEmailJunk','chkEmailSaveBody','chkQqPopup','txtEmailPoll','btnEmailTest','btnEmailSave')
 Capture 'email-narrow.png' 780 760
 Layout 1280 850
-Assert 'layout:email-wide-restores-label-column' ([Windows.Controls.Grid]::GetRow($emailWrapper) -eq 3 -and $emailGrid.ColumnDefinitions[0].Width.Value -eq 150)
 Assert 'layout:email-wide-field-within-parent' (WithinParent $emailInput)
-CheckControls 'email-wide' @('txtEmailAccount','emailAuthHost','txtEmailKeywordAdd','btnEmailKeywordDefault','chkQqPopup')
+CheckControls 'email-wide' @('txtEmailAccount','emailAuthHost','btnEmailKeywordDefault','chkQqPopup','btnEmailTest','btnEmailSave')
+Assert 'copy:email-qq-hint-stays-concise' (([string]$content.FindName('chkQqPopup').Content).Length -lt 20 -and ([string]$content.FindName('chkQqPopup').ToolTip).Length -lt 40)
 Capture 'email-wide.png' 1280 850
+$content.FindName('settingsScroll').ScrollToBottom();Pump
+Capture 'email-advanced-wide.png' 1280 850
+Layout 780 760
+$content.FindName('settingsScroll').ScrollToBottom();Pump
+Capture 'email-advanced-narrow.png' 780 760
 foreach($section in @('general','security')) {
     [void](Call $windowType 'SelectSection' $window @($section))
     Layout 780 760
     Assert ('layout:no-horizontal-scroll-'+$section) ($content.FindName('settingsScroll').ExtentWidth -le $content.FindName('settingsScroll').ViewportWidth+1)
-    if($section -eq 'general') { CheckControls 'sms-narrow' @('txtPcIp','btnDetect','btnTestPc','tokenHost','ntfyTokenHost','txtNtfyServer','btnTestNtfy','txtFilterKeywords','txtFilterRegex','chkStartup','btnGen','btnImport','btnExport') }
+    if($section -eq 'general') { CheckControls 'sms-narrow' @('txtPcIp','btnDetect','btnTestPc','tokenHost','ntfyTokenHost','txtNtfyServer','btnTestNtfy','txtFilterKeywords','txtFilterRegex','chkStartup','btnGen') }
     else {
         Assert 'layout:lock-action-hidden-until-enabled' ($content.FindName('btnLock').Visibility -eq [Windows.Visibility]::Collapsed)
+        # The lock screen uses the same inline eye: one click reveals, another restores the mask.
+        Assert 'unlock:eye-starts-masked' ($content.FindName('txtUnlockPlain').Visibility -eq [Windows.Visibility]::Collapsed)
+        $content.FindName('btnUnlockEye').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+        Assert 'unlock:eye-reveals-plain' ($content.FindName('txtUnlockPlain').Visibility -eq [Windows.Visibility]::Visible -and $content.FindName('txtUnlockPassword').Visibility -eq [Windows.Visibility]::Collapsed)
+        $content.FindName('btnUnlockEye').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+        Assert 'unlock:eye-restores-mask' ($content.FindName('txtUnlockPlain').Visibility -eq [Windows.Visibility]::Collapsed -and $content.FindName('txtUnlockPassword').Visibility -eq [Windows.Visibility]::Visible)
+        $unlockAddon=[Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent($content.FindName('txtUnlockPassword'))))
+        Assert 'unlock:field-uses-input-addon' ($unlockAddon -is [Windows.Controls.Border] -and [Math]::Abs([double]$unlockAddon.Width-300) -le 1)
         [void](Call $configType 'SetPassword' $cfg @('synthetic-layout-password'))
         [void](Call $windowType 'LoadValues' $window @())
         Layout 780 760
@@ -208,30 +270,283 @@ foreach($section in @('general','security')) {
 [void](Call $windowType 'SelectSection' $window @('general'))
 Assert 'layout:sms-sections-visible' ($content.FindName('cardNtfy').Visibility.ToString() -eq 'Visible' -and $content.FindName('cardSmsFilters').Visibility.ToString() -eq 'Visible')
 Assert 'layout:sms-controls-within-parent' ((WithinParent ($content.FindName('txtPcIp'))) -and (WithinParent ($content.FindName('btnDetect'))) -and (WithinParent ($content.FindName('btnTestPc'))))
+# Settings page model: one item per SettingsCard. Every card shares one box, every title
+# starts on the same left line as the group titles, every control hugs the same right line.
+function RightEdge($element,$viewport) { return $element.TranslatePoint((New-Object Windows.Point($element.ActualWidth,0)),$viewport).X }
+function LeftEdge($element,$viewport) { return $element.TranslatePoint((New-Object Windows.Point(0,0)),$viewport).X }
+function SettingsCards($node) {
+    $grid=$node -as [Windows.Controls.Grid]
+    if($null -ne $grid -and ($grid.Tag -eq 'SettingsCard' -or $grid.Tag -eq 'SettingsCardStacked')) { ,$grid }
+    foreach($child in @([Windows.LogicalTreeHelper]::GetChildren($node))) { if($child -is [Windows.FrameworkElement]) { SettingsCards $child } }
+}
+function CheckCards([string]$section,[int]$size,[bool]$compact) {
+    $cards=@(SettingsCards $content | Where-Object { $_ -is [Windows.Controls.Grid] -and $_.IsVisible })
+    Assert ('cards:found-'+$section+'-'+$size) ($cards.Count -ge 4)
+    $box=[Windows.LogicalTreeHelper]::GetParent($cards[0])
+    $boxLeft=(LeftEdge $box $content); $boxRight=(RightEdge $box $content)
+    # Group titles and descriptions share the same left line as the card text (padding 20).
+    foreach($name in @('cardGeneral','cardNetwork','cardNtfy','cardSmsFilters','cardMore','cardEmail','cardEmailFilters','cardQqPopup','cardNotify','cardSecurity')) {
+        $group=$content.FindName($name)
+        if($group -eq $null -or -not $group.IsVisible) { continue }
+        Assert ('cards:group-title-left-'+$section+'-'+$size+'-'+$name) ([Math]::Abs((LeftEdge $group.Child.Children[0] $content)-($boxLeft+20)) -le 2)
+    }
+    $index=0
+    foreach($card in $cards) {
+        $index++
+        $cardBox=[Windows.LogicalTreeHelper]::GetParent($card)
+        Assert ('cards:same-box-'+$section+'-'+$size+'-'+$index) ([Math]::Abs((LeftEdge $cardBox $content)-$boxLeft) -le 1 -and [Math]::Abs((RightEdge $cardBox $content)-$boxRight) -le 1)
+        $header=@([Windows.LogicalTreeHelper]::GetChildren($card) | Where-Object { $_ -is [Windows.FrameworkElement] })[0]
+        $title=$header
+        if($title -isnot [Windows.Controls.TextBlock]) {
+            $inner=@([Windows.LogicalTreeHelper]::GetChildren($title) | Where-Object { $_ -is [Windows.Controls.TextBlock] })
+            if($inner.Count -gt 0) { $title=$inner[0] }
+        }
+        Assert ('cards:title-left-'+$section+'-'+$size+'-'+$index) ([Math]::Abs((LeftEdge $title $content)-($boxLeft+20)) -le 2)
+        $contentElement=$card.Children[1]
+        # Every control's right edge sits on the same line (full-width blocks stretch to it too).
+        Assert ('cards:control-right-'+$section+'-'+$size+'-'+$index) ([Math]::Abs((RightEdge $contentElement $content)-($boxRight-20)) -le 2)
+        # The two columns share the same vertical center (a blank description must not push the text up).
+        if($card.Tag -eq 'SettingsCard' -and -not $compact) {
+            $left=$null; $right=$null
+            foreach($child in [Windows.LogicalTreeHelper]::GetChildren($card)) {
+                if($child -isnot [Windows.FrameworkElement]) { continue }
+                if($left -eq $null) { $left=$child } else { if($right -eq $null) { $right=$child } }
+            }
+            if($left -ne $null -and $right -ne $null) {
+                $leftCenter=$left.TranslatePoint((New-Object Windows.Point(0,([double]$left.ActualHeight/2))),$card).Y
+                $rightCenter=$right.TranslatePoint((New-Object Windows.Point(0,([double]$right.ActualHeight/2))),$card).Y
+                $cardCenter=[double]$card.ActualHeight/2
+                # Both columns must sit on the card's own middle (extra min-height space lands at the bottom).
+                Assert ('cards:row-centered-'+$section+'-'+$size+'-'+$index) ([Math]::Abs($leftCenter-$cardCenter) -le 2 -and [Math]::Abs($rightCenter-$cardCenter) -le 2)
+            }
+        }
+        $boxWidth=$boxRight-$boxLeft
+        if($card.Tag -eq 'SettingsCardStacked' -and [Math]::Abs($contentElement.ActualWidth-($boxWidth-42)) -le 4) {
+            Assert ('cards:content-full-width-'+$section+'-'+$size+'-'+$index) ([Math]::Abs((LeftEdge $contentElement $content)-($boxLeft+21)) -le 2)
+        }
+    }
+}
+# Toggle cards: the whole row is clickable and flips its switch.
+function ToggleCards($node,$list) {
+    $border=$node -as [Windows.Controls.Border]
+    if($null -ne $border -and $border.Tag -eq 'SettingsToggle') { [void]$list.Add($border) }
+    foreach($child in @([Windows.LogicalTreeHelper]::GetChildren($node))) { if($child -is [Windows.FrameworkElement]) { ToggleCards $child $list } }
+}
 foreach($size in @(640,780,1100,1280)) {
+    $compactShell=$size -lt 700
     [void](Call $windowType 'SelectSection' $window @('general'))
     Layout $size 850
-    $reference=$content.FindName('txtNtfyServer')
-    $left=$reference.TranslatePoint((New-Object Windows.Point(0,0)),$content).X
-    foreach($name in @('txtPort','txtPcIp','txtClear','codeLengthRow','txtNtfyTopic','txtSmsMaxLength','txtFilterKeywords','txtFilterRegex')) {
-        $control=$content.FindName($name)
-        Assert ('alignment:sms-equal-width-'+$size+'-'+$name) ([Math]::Abs($control.ActualWidth-$reference.ActualWidth) -le 1)
-        Assert ('alignment:sms-same-left-'+$size+'-'+$name) ([Math]::Abs($control.TranslatePoint((New-Object Windows.Point(0,0)),$content).X-$left) -le 1)
+    $inputWidth=[double]$content.Resources['SettingsInputWidth']
+    # Content-sized fields: the box fits what the field holds (5 digits, IPv4, 2 digits...), not a fixed 180.
+    $contentWidths=@{txtPort=72;txtPcIp=132;txtMin=46;txtMax=46}
+    foreach($name in $contentWidths.Keys) {
+        Assert ('cards:content-width-'+$size+'-'+$name) ([Math]::Abs($content.FindName($name).ActualWidth-$contentWidths[$name]) -le 1)
     }
-    $secret=$windowType.GetField('fldNtfyToken',$flags).GetValue($window)
-    $masked=$secret.GetType().GetField('masked',$flags).GetValue($secret)
-    Assert ('alignment:secret-equals-ordinary-'+$size) ([Math]::Abs($masked.ActualWidth-$reference.ActualWidth) -le 1)
-    $ipRow=$content.FindName('pcAddressRow')
-    $lengthRow=$content.FindName('codeLengthRow')
-    $ipBottom=$ipRow.TranslatePoint((New-Object Windows.Point(0,$ipRow.ActualHeight)),$content).Y
-    Assert ('alignment:address-actions-do-not-overlap-next-row-'+$size) ($lengthRow.TranslatePoint((New-Object Windows.Point(0,0)),$content).Y -ge $ipBottom+6)
+    $addonWidths=@{txtClear=92;txtSmsMaxLength=118}
+    foreach($name in $addonWidths.Keys) {
+        $addon=[Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent($content.FindName($name)))
+        Assert ('cards:content-addon-width-'+$size+'-'+$name) ([Math]::Abs($addon.ActualWidth-$addonWidths[$name]) -le 1)
+    }
+    foreach($name in @('txtNtfyServer','txtNtfyTopic')) {
+        Assert ('cards:input-width-'+$size+'-'+$name) ([Math]::Abs($content.FindName($name).ActualWidth-$inputWidth) -le 1)
+    }
+    # Secret field: same width and same outer edge as the plain inputs (the eye is inside the box).
+    foreach($hostName in @('tokenHost','ntfyTokenHost')) {
+        $secretHost=$content.FindName($hostName)
+        $addon=@([Windows.LogicalTreeHelper]::GetChildren($secretHost) | Where-Object { $_ -is [Windows.Controls.Border] })[0]
+        Assert ('cards:secret-addon-width-'+$size+'-'+$hostName) ([Math]::Abs($addon.ActualWidth-$inputWidth) -le 1)
+        Assert ('cards:secret-addon-right-'+$size+'-'+$hostName) ([Math]::Abs((RightEdge $addon $content)-(RightEdge $secretHost $content)) -le 1)
+    }
+    # Connectivity actions live in the description line, never beside their input.
+    foreach($pair in @(@('btnTestNtfy','txtNtfyServer'),@('btnDetect','txtPcIp'),@('btnTestPc','txtPcIp'))) {
+        $action=$content.FindName($pair[0]); $inputBox=$content.FindName($pair[1])
+        Assert ('cards:link-in-description-'+$size+'-'+$pair[0]) (-not [object]::ReferenceEquals([Windows.LogicalTreeHelper]::GetParent($action),[Windows.LogicalTreeHelper]::GetParent($inputBox)))
+    }
+    CheckCards 'sms' $size $compactShell
     CheckControls ('aligned-sms-'+$size) @('txtNtfyServer','ntfyTokenHost','btnTestPc','btnDetect')
-    if($size -eq 1100) { Capture 'sms-aligned-wide.png' 1100 850 }
+    # Toggle motion is code-driven, so it survives the animation stripping Windows reports over RDP.
+    $toggle=$content.FindName('chkStartup')
+    $wasOn=($toggle.IsChecked -eq $true)
+    $toggle.IsChecked=-not $wasOn
+    $toggle.ApplyTemplate()
+    $shift=$toggle.Template.FindName('KnobShift',$toggle)
+    Assert ('cards:toggle-motion-'+$size) ($null -ne $shift -and $shift.HasAnimatedProperties)
+    $final=0; if($toggle.IsChecked -eq $true) { $final=20 }
+    # The animation is driven by the render clock; call the static sync (same path as loading settings) to verify the end position.
+    $sync=$windowType.GetMethods($flags) | Where-Object { $_.Name -eq 'AnimateToggle' -and $_.GetParameters().Count -eq 2 } | Select-Object -First 1
+    [void]$sync.Invoke($window,@($toggle,$true))
+    Assert ('cards:toggle-knob-lands-'+$size) ([Math]::Abs($shift.X-$final) -lt 0.6)
+    $toggle.IsChecked=$wasOn
+    if($size -eq 1100) {
+        # Both directions must retain append-at-end behavior after focus and layout settle.
+        $secret=$windowType.GetField('fldNtfyToken',$flags).GetValue($window)
+        $secretType=$secret.GetType()
+        $maskedBox=$secretType.GetField('masked',$flags).GetValue($secret)
+        $plainBox=$secretType.GetField('plain',$flags).GetValue($secret)
+        $revealBtn=$secretType.GetField('toggle',$flags).GetValue($secret)
+        # Icon has two states: open eye and closed eye (both vector, lashes included).
+        $closedIcon=$null; $openIcon=$null
+        foreach($iconChild in $revealBtn.Content.Children) {
+            if($iconChild.Tag -eq 'RevealOpen') { $openIcon=$iconChild }
+            if($iconChild.Tag -eq 'RevealClosed') { $closedIcon=$iconChild }
+        }
+        Assert ('cards:reveal-icon-two-states-'+$size) ($null -ne $closedIcon -and $null -ne $openIcon -and $closedIcon.Visibility.ToString() -eq 'Collapsed' -and $openIcon.Visibility.ToString() -eq 'Visible')
+        $maskedBox.Password='caret-probe'
+        $revealBtn.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+        Assert ('cards:reveal-shows-plain-'+$size) ($plainBox.Visibility.ToString() -eq 'Visible' -and $maskedBox.Visibility.ToString() -eq 'Collapsed' -and $closedIcon.Visibility.ToString() -eq 'Visible' -and $openIcon.Visibility.ToString() -eq 'Collapsed')
+        Pump
+        Assert ('cards:reveal-caret-at-end-'+$size) ($plainBox.Text -eq 'caret-probe' -and $plainBox.CaretIndex -eq 'caret-probe'.Length)
+        $revealBtn.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+        Assert ('cards:reveal-restores-mask-'+$size) ($maskedBox.Visibility.ToString() -eq 'Visible' -and $plainBox.Visibility.ToString() -eq 'Collapsed' -and $closedIcon.Visibility.ToString() -eq 'Collapsed' -and $openIcon.Visibility.ToString() -eq 'Visible')
+        CheckRevealInput $secret 'reveal:settings'
+        foreach($state in @($openIcon,$closedIcon)) {
+            $state.Visibility=[Windows.Visibility]::Visible
+            $window.Content.UpdateLayout()
+            $canvas=$state.Children[0]
+            $bounds=[Windows.Media.VisualTreeHelper]::GetDescendantBounds($canvas)
+            $inButton=$canvas.TransformToAncestor($revealBtn).TransformBounds($bounds)
+            Assert ('reveal:ink-centered-'+$state.Tag) ([Math]::Abs($inButton.X+$inButton.Width/2-$revealBtn.ActualWidth/2) -le 0.6 -and [Math]::Abs($inButton.Y+$inButton.Height/2-$revealBtn.ActualHeight/2) -le 0.6)
+            $state.Visibility=[Windows.Visibility]::Collapsed
+        }
+        $openIcon.Visibility=[Windows.Visibility]::Visible
+        Capture 'sms-aligned-wide.png' 1100 850
+        $content.FindName('settingsScroll').ScrollToBottom(); Pump
+        Capture 'sms-filters-wide.png' 1100 850
+    }
     [void](Call $windowType 'SelectSection' $window @('email'))
     Layout $size 850
+    $account=$content.FindName('txtEmailAccount')
+    Assert ('cards:email-account-width-'+$size) ([Math]::Abs($account.ActualWidth-$inputWidth) -le 1)
+    $emailPollAddon=[Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent($content.FindName('txtEmailPoll')))
+    Assert ('cards:content-addon-width-'+$size+'-txtEmailPoll') ([Math]::Abs($emailPollAddon.ActualWidth-92) -le 1)
+    Assert ('cards:content-width-'+$size+'-cmbEmailProvider') ([Math]::Abs($content.FindName('cmbEmailProvider').ActualWidth-130) -le 1)
+    # Keyword add box stays hidden until Add is pressed.
+    $keywordInput=$content.FindName('txtEmailKeywordAdd')
+    Assert ('cards:keyword-input-hidden-'+$size) ($keywordInput.Visibility -eq [Windows.Visibility]::Collapsed)
+    $content.FindName('btnEmailKeywordAdd').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+    Assert ('cards:keyword-input-shown-on-add-'+$size) ($keywordInput.Visibility -eq [Windows.Visibility]::Visible)
+    $keywordInput.Visibility=[Windows.Visibility]::Collapsed
     $secret=$windowType.GetField('fldEmailAuth',$flags).GetValue($window)
+    if($size -eq 1100) { CheckRevealInput $secret 'reveal:email' }
     $masked=$secret.GetType().GetField('masked',$flags).GetValue($secret)
-    Assert ('alignment:email-secret-equals-account-'+$size) ([Math]::Abs($masked.ActualWidth-$emailInput.ActualWidth) -le 1)
+    $addon=[Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent($masked)))
+    Assert ('cards:email-secret-addon-width-'+$size) ([Math]::Abs($addon.ActualWidth-$inputWidth) -le 1)
+    CheckCards 'email' $size $compactShell
+    $testButton=$content.FindName('btnEmailTest');$saveButton=$content.FindName('btnEmailSave')
+    $actions=[Windows.LogicalTreeHelper]::GetParent($testButton)
+    $testPoint=$testButton.TranslatePoint((New-Object Windows.Point(0,0)),$content)
+    $savePoint=$saveButton.TranslatePoint((New-Object Windows.Point(0,0)),$content)
+    Assert ('cards:email-actions-same-row-with-gap-'+$size) ([Math]::Abs($testPoint.Y-$savePoint.Y) -le 1 -and $savePoint.X-$testPoint.X-$testButton.ActualWidth -ge 7)
+    if($size -eq 1100) { Capture 'email-cards-wide.png' 1100 850 }
+    [void](Call $windowType 'SelectSection' $window @('security'))
+    Layout $size 850
+    CheckCards 'privacy' $size $compactShell
+}
+# The same interaction is used by the lock overlay and both password-dialog fields.
+$revealerType=$asm.GetType('Codepass.PasswordRevealer')
+$overlay=$content.FindName('lockOverlay')
+$overlay.Visibility=[Windows.Visibility]::Visible; Pump
+$lockProbe=$windowType.GetField('unlockRevealer',$flags).GetValue($window)
+CheckRevealInput $lockProbe 'reveal:lock-overlay'
+$overlay.Visibility=[Windows.Visibility]::Collapsed
+$dialogType=$asm.GetType('Codepass.PasswordSettingsDialog')
+$dialog=$dialogType.GetConstructors($flags)[0].Invoke([object[]]@($window.PSObject.BaseObject,$cfg.PSObject.BaseObject,[string]$configPath,$false))
+$dialog.ShowActivated=$false; $dialog.Show(); Pump
+$dialogRevealers=$dialogType.GetField('revealers',$flags).GetValue($dialog)
+for($i=0;$i -lt $dialogRevealers.Count;$i++) {
+    $dialogMasked=$revealerType.GetField('masked',$flags).GetValue($dialogRevealers[$i])
+    if($dialogMasked.IsVisible) { CheckRevealInput $dialogRevealers[$i] ('reveal:dialog-'+$i) }
+}
+$dialog.Close()
+# Import/export moved out of the settings page and into About.
+[void](Call $windowType 'SelectSection' $window @('about'))
+Layout 900 800
+$aboutPage=$content.FindName('pageAbout')
+Assert 'layout:import-export-moved-to-about' ((InSubtree ($content.FindName('btnImport')) $aboutPage) -and (InSubtree ($content.FindName('btnExport')) $aboutPage))
+Assert 'layout:import-export-left-settings' (-not (InSubtree ($content.FindName('btnImport')) $content.FindName('pageSet')))
+Capture 'about-wide.png' 900 800
+[void](Call $windowType 'SelectSection' $window @('general'))
+# Test message: simulate a received SMS and email through the real delivery path.
+$dryWas=$cfg.Dry; $cfg.Dry=$false
+$historyBefore=(Call $historyType 'Snapshot' $null @()).Count
+$content.FindName('btnTestSms').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+Pump
+$historyAfterSms=(Call $historyType 'Snapshot' $null @()).Count
+Assert 'settings:test-sms-adds-record' ($historyAfterSms -eq $historyBefore+1)
+$content.FindName('btnTestEmail').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+Pump
+$historyAfterEmail=(Call $historyType 'Snapshot' $null @()).Count
+Assert 'settings:test-email-adds-record' ($historyAfterEmail -eq $historyAfterSms+1)
+$cfg.Dry=$dryWas
+$toggleList=New-Object 'System.Collections.Generic.List[object]'
+ToggleCards $content $toggleList
+Assert 'cards:toggles-present' ($toggleList.Count -ge 8)
+[void](Call $windowType 'SelectSection' $window @('general'))
+Layout 1100 850
+$tipBox=$content.FindName('chkTip')
+$tipCard=[Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent($tipBox))
+$tipBefore=$tipBox.IsChecked
+$clickArgs=New-Object Windows.Input.MouseButtonEventArgs([Windows.Input.Mouse]::PrimaryDevice,0,[Windows.Input.MouseButton]::Left)
+$clickArgs.RoutedEvent=[Windows.UIElement]::MouseLeftButtonUpEvent
+$tipCard.RaiseEvent($clickArgs); Pump
+Assert 'cards:toggle-row-click-flips' ($tipBox.IsChecked -ne $tipBefore)
+$tipCard.RaiseEvent($clickArgs); Pump
+Assert 'cards:toggle-row-click-restores' ($tipBox.IsChecked -eq $tipBefore)
+Assert 'cards:toggle-card-cursor' ($tipCard.Cursor.ToString() -eq 'Hand')
+# Form rows: a label cell and its input cell must share one vertical centre.
+# Cell geometry belongs to InitializeResponsiveForms alone, so a label must never
+# carry its own Height or Padding. A stray one silently pushes that card's labels
+# below their inputs, which is how every newly added card drifted out of line.
+function LabelTextCentre($label,$viewport) {
+    $top=$label.TranslatePoint((New-Object Windows.Point(0,0)),$viewport).Y
+    return $top+$label.Padding.Top+($label.FontFamily.LineSpacing*$label.FontSize)/2
+}
+function EntryCentre($entry,$viewport) {
+    $top=$entry.TranslatePoint((New-Object Windows.Point(0,0)),$viewport).Y
+    return $top+$entry.ActualHeight/2
+}
+function FirstEntry($element) {
+    if($element -is [Windows.Controls.TextBox] -or $element -is [Windows.Controls.PasswordBox] -or $element -is [Windows.Controls.ComboBox]) { return $element }
+    foreach($child in @([Windows.LogicalTreeHelper]::GetChildren($element))) {
+        if($child -is [Windows.FrameworkElement]) { $found=FirstEntry $child; if($null -ne $found) { return $found } }
+    }
+    return $null
+}
+function FormLabelRows($node) {
+    $grid=$node -as [Windows.Controls.Grid]
+    if($null -ne $grid -and $grid.ColumnDefinitions.Count -eq 2 -and $grid.ColumnDefinitions[0].Width.IsAbsolute -and $grid.ColumnDefinitions[1].Width.IsStar) {
+        $rows=@($grid.Children | ForEach-Object { [Windows.Controls.Grid]::GetRow($_) } | Sort-Object -Unique)
+        foreach($row in $rows) {
+            $labels=@($grid.Children | Where-Object { [Windows.Controls.Grid]::GetRow($_) -eq $row -and [Windows.Controls.Grid]::GetColumn($_) -eq 0 -and $_ -is [Windows.Controls.TextBlock] })
+            $fields=@($grid.Children | Where-Object { [Windows.Controls.Grid]::GetRow($_) -eq $row -and [Windows.Controls.Grid]::GetColumn($_) -eq 1 })
+            if($labels.Count -eq 1 -and $fields.Count -ge 1) { New-Object PSObject -Property @{ Label=$labels[0]; Field=$fields[0] } }
+        }
+    }
+    foreach($child in @([Windows.LogicalTreeHelper]::GetChildren($node))) { if($child -is [Windows.DependencyObject]) { FormLabelRows $child } }
+}
+foreach($section in @('general','email','security')) {
+    [void](Call $windowType 'SelectSection' $window @($section))
+    Layout 1280 850
+    $viewport=$content.FindName('settingsScroll')
+    $index=0
+    foreach($row in @(FormLabelRows $content)) {
+        $label=$row.Label
+        if(-not $label.IsVisible) { continue }
+        $entry=FirstEntry $row.Field
+        if($section -eq 'email' -and $row.Field -is [Windows.Controls.CheckBox]) { $entry=$row.Field }
+        if($section -eq 'email' -and $row.Field.Name -eq 'emailReceiveOptions') { $entry=$content.FindName('chkEmailNotify') }
+        if($null -eq $entry -or -not $entry.IsVisible) { continue }
+        # Skip rows whose field cell opens with something other than the input
+        # (for example the keyword-tag strip), where the label pairs with that block.
+        $entryTop=$entry.TranslatePoint((New-Object Windows.Point(0,0)),$viewport).Y
+        $cellTop=$row.Field.TranslatePoint((New-Object Windows.Point(0,0)),$viewport).Y
+        if($entryTop-$cellTop -gt 12) { continue }
+        $index++
+        $tag='alignment:label-'+$section+'-'+$index
+        Assert ($tag+'-no-fixed-height') ([double]::IsNaN($label.Height))
+        Assert ($tag+'-no-local-padding') ($label.Padding.Left -eq 0 -and $label.Padding.Top -eq 0 -and $label.Padding.Right -eq 0 -and $label.Padding.Bottom -eq 0)
+        Assert ($tag+'-centred-with-input') ([Math]::Abs((LabelTextCentre $label $viewport)-(EntryCentre $entry $viewport)) -le 3)
+    }
 }
 $dialogType=$asm.GetType('Codepass.CodepassDialog')
 $guide=Call $dialogType 'CreateWebhookGuide' $null @($window,'http://192.0.2.51:8787/sms')
