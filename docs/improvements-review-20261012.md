@@ -69,4 +69,4 @@
 
 本轮处理的是 root 脚本；既有 Magisk / LSPosed 发布附件未重建。原工作区的 `windows/build.ps1`、`windows/dist/codepass.exe`、`windows/dist/build-info.json` 及既有文档不属于本轮新增源码改动，应在提交时核对其原有用途。
 
-通过回归的可运行检查构建及摘要保留于 `release/review-20261012/`（Git 忽略目录）。备份位于项目 `backups/improvements-20261012-010725/`。
+通过回归的可运行检查构建及摘要保留于 `archive/release-previews/review-20261012/`（Git 忽略目录，目录整理时自 `release/` 移入）。备份位于项目 `backups/2026-10-12/improvements-20261012-010725/`。
