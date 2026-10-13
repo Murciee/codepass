@@ -16,6 +16,9 @@ namespace Codepass
         // 每行一条；关键字按包含匹配，正则按逐行匹配。
         public string FilterKeywords = "";
         public string FilterRegex = "";
+        // 默认只收取明确的验证码短信；用户清空后恢复全部收取。
+        public string SmsAcceptKeywords = DefaultSmsAcceptKeywords;
+        public const string DefaultSmsAcceptKeywords = "验证码\n校验码\n安全代码\n安全码\n动态码\n动态密码\n短信码\n一次性密码\nverification code\nsecurity code\none-time code\nOTP";
         public int MinLen = 4;
         public int MaxLen = 8;
         public const int DefaultSmsMaxLength = 500;
@@ -126,6 +129,7 @@ namespace Codepass
                         case "ntfy_token": c.NtfyToken = v; sawNtfyToken = true; break;
                         case "filter_keywords_b64": c.FilterKeywords = DecodeText(v, k, strict); break;
                         case "filter_regex_b64": c.FilterRegex = DecodeText(v, k, strict); break;
+                        case "sms_accept_keywords_b64": c.SmsAcceptKeywords = DecodeText(v, k, strict); break;
                         // 兼容旧版本配置，但不再启用手机推送服务。
                         case "push_provider": break;
                         case "push_server": break;
@@ -248,6 +252,14 @@ namespace Codepass
                 c.FilterKeywords = "";
                 c.FilterRegex = "";
             }
+
+            // 与过滤规则同待遇：坏文件重置为空（即恢复全部收取），不让解析问题阻断收短信。
+            string acceptKeywordError;
+            if (!CodeExtractor.ValidateKeywordLines(c.SmsAcceptKeywords, "接收关键字", out acceptKeywordError))
+            {
+                if (strict) throw new FormatException("配置文件中的接收关键字无效：" + acceptKeywordError);
+                c.SmsAcceptKeywords = "";
+            }
             // 锁数据损坏时不静默解除密码锁（fail-closed）：保留锁定，只允许用原始完整配置恢复。
             return c;
         }
@@ -368,6 +380,7 @@ namespace Codepass
             sb.AppendLine("ntfy_token = " + (includeSecrets ? NtfyToken : ""));
             sb.AppendLine("filter_keywords_b64 = " + EncodeText(FilterKeywords));
             sb.AppendLine("filter_regex_b64 = " + EncodeText(FilterRegex));
+            sb.AppendLine("sms_accept_keywords_b64 = " + EncodeText(SmsAcceptKeywords));
             sb.AppendLine("min_len = " + MinLen);
             sb.AppendLine("max_len = " + MaxLen);
             sb.AppendLine("sms_max_length = " + SmsMaxLength);
@@ -495,6 +508,7 @@ namespace Codepass
             NtfyToken = other.NtfyToken;
             FilterKeywords = other.FilterKeywords;
             FilterRegex = other.FilterRegex;
+            SmsAcceptKeywords = other.SmsAcceptKeywords;
             MinLen = other.MinLen;
             MaxLen = other.MaxLen;
             SmsMaxLength = other.SmsMaxLength;

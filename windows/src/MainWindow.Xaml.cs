@@ -1298,6 +1298,34 @@ namespace Codepass
                   <TextBlock Style='{StaticResource SettingsGroupTitle}' Text='短信过滤'/>
 
                   <Border Style='{StaticResource SettingsCard}'>
+                    <Grid Tag='SettingsCardStacked'>
+                      <Grid.ColumnDefinitions><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                      <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                      <StackPanel Grid.Row='0' Grid.Column='0'>
+                        <TextBlock Style='{StaticResource SettingsCardHeader}' Text='接收关键字'/>
+                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='短信包含任一关键字才会收取；留空表示全部收取；点 × 移除。'/>
+                        <WrapPanel x:Name='acceptKeywordTags' Margin='0,8,0,0'/>
+                      </StackPanel>
+                      <Grid Tag='FieldActions' Grid.Row='1' Grid.Column='0' HorizontalAlignment='Right'>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width='Auto'/><ColumnDefinition Width='*'/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
+                        <TextBox x:Name='txtAcceptKeywordAdd' Style='{StaticResource Input}' Width='160' Visibility='Collapsed' ToolTip='输入关键字，按回车添加；支持粘贴多行'/>
+                        <WrapPanel Grid.Column='1'>
+                          <Button x:Name='btnAcceptKeywordAdd' Style='{StaticResource SecondaryBtn}' Content='添加'/>
+                          <Button x:Name='btnAcceptKeywordDefault' Style='{StaticResource SecondaryBtn}' Content='恢复默认' Margin='8,0,0,0'/>
+                        </WrapPanel>
+                      </Grid>
+                      <StackPanel Grid.Row='2' Grid.Column='0' Margin='0,6,0,0'>
+                        <Expander Header='批量编辑（每行一个关键字）' FontSize='12.5'>
+                          <TextBox x:Name='txtAcceptKeywords' Style='{StaticResource Input}' Margin='0,6,0,0'
+                                   Height='Auto' MinHeight='32' MaxHeight='96' Padding='6,3,7,3'
+                                   AcceptsReturn='True' TextWrapping='Wrap' VerticalScrollBarVisibility='Auto'/>
+                        </Expander>
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+
+                  <Border Style='{StaticResource SettingsCard}'>
                     <Grid Tag='SettingsCard'>
                       <Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='Auto'/></Grid.ColumnDefinitions>
                       <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>

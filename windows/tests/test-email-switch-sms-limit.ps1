@@ -73,22 +73,43 @@ function Snapshot { return ,(Call $historyType 'Snapshot' $null @()) }
 
 $cfg=NewConfig
 Assert 'config:default-500' ($cfg.SmsMaxLength -eq 500)
+Assert 'config:accept-default-keywords' ($cfg.SmsAcceptKeywords -eq $configType.GetField('DefaultSmsAcceptKeywords',$flags).GetValue($null))
 $cfg.SmsMaxLength=750
+$cfg.SmsAcceptKeywords="verification`ncode"
 $roundtripPath=Join-Path $testRoot 'roundtrip.ini'; $cfg.Save($roundtripPath)
 $loaded=Call $configType 'Load' $null @($roundtripPath)
 Assert 'config:length-roundtrip' ($loaded.SmsMaxLength -eq 750)
+Assert 'config:accept-roundtrip' ($loaded.SmsAcceptKeywords -eq $cfg.SmsAcceptKeywords)
 $clone=NewConfig; $clone.CopyFrom($cfg)
 Assert 'config:length-copy' ($clone.SmsMaxLength -eq 750)
+Assert 'config:accept-copy' ($clone.SmsAcceptKeywords -eq $cfg.SmsAcceptKeywords)
 $exportPath=Join-Path $testRoot 'export.ini'; $cfg.Save($exportPath,$false,$true)
 Assert 'config:length-export' ((Call $configType 'Load' $null @($exportPath,$true)).SmsMaxLength -eq 750)
+Assert 'config:accept-export' ((Call $configType 'Load' $null @($exportPath,$true)).SmsAcceptKeywords -eq $cfg.SmsAcceptKeywords)
 $legacyPath=Join-Path $testRoot 'legacy.ini'
 [IO.File]::WriteAllText($legacyPath,"port=8787`nmin_len=4`nmax_len=8`n")
 Assert 'config:legacy-default-500' ((Call $configType 'Load' $null @($legacyPath,$true)).SmsMaxLength -eq 500)
+Assert 'config:accept-legacy-default-keywords' ((Call $configType 'Load' $null @($legacyPath,$true)).SmsAcceptKeywords -eq $configType.GetField('DefaultSmsAcceptKeywords',$flags).GetValue($null))
 foreach($invalid in @('0','-1','10001','bad')) {
     [IO.File]::WriteAllText($legacyPath,"port=8787`nmin_len=4`nmax_len=8`nsms_max_length=$invalid`n")
     Assert ('config:invalid-strict-'+$invalid) (Rejected { Call $configType 'Load' $null @($legacyPath,$true) })
     Assert ('config:invalid-safe-default-'+$invalid) ((Call $configType 'Load' $null @($legacyPath)).SmsMaxLength -eq 500)
 }
+$acceptLongLine=('k'*1025)
+$acceptB64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($acceptLongLine))
+[IO.File]::WriteAllText($legacyPath,"port=8787`nmin_len=4`nmax_len=8`nsms_accept_keywords_b64=$acceptB64`n")
+Assert 'config:accept-invalid-line-strict' (Rejected { Call $configType 'Load' $null @($legacyPath,$true) })
+Assert 'config:accept-invalid-line-safe-empty' ((Call $configType 'Load' $null @($legacyPath)).SmsAcceptKeywords -eq '')
+$acceptManyLines=((1..65|ForEach-Object{'k'}) -join "`n")
+$acceptB64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($acceptManyLines))
+[IO.File]::WriteAllText($legacyPath,"port=8787`nmin_len=4`nmax_len=8`nsms_accept_keywords_b64=$acceptB64`n")
+Assert 'config:accept-invalid-lines-strict' (Rejected { Call $configType 'Load' $null @($legacyPath,$true) })
+Assert 'config:accept-invalid-lines-safe-empty' ((Call $configType 'Load' $null @($legacyPath)).SmsAcceptKeywords -eq '')
+$acceptTooLong=((1..64|ForEach-Object{('k'*300)}) -join "`n")
+$acceptB64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($acceptTooLong))
+[IO.File]::WriteAllText($legacyPath,"port=8787`nmin_len=4`nmax_len=8`nsms_accept_keywords_b64=$acceptB64`n")
+Assert 'config:accept-invalid-total-strict' (Rejected { Call $configType 'Load' $null @($legacyPath,$true) })
+Assert 'config:accept-invalid-total-safe-empty' ((Call $configType 'Load' $null @($legacyPath)).SmsAcceptKeywords -eq '')
 $cfg.SmsMaxLength=0
 Assert 'config:invalid-save-rejected' (Rejected { $cfg.Save($roundtripPath) })
 $limitMethod='SmsExceedsLengthLimit'
@@ -101,6 +122,10 @@ Assert 'length:emoji-over-boundary' (Call $deliveryType $limitMethod $null @((($
 Assert 'length:spaces-and-newlines-counted' (Call $deliveryType $limitMethod $null @(('x'*499+"`r`n"),500))
 Assert 'length:null-safe' (-not (Call $deliveryType $limitMethod $null @($null,500)))
 Assert 'length:invalid-limit-falls-back' (Call $deliveryType $limitMethod $null @(('x'*501),0))
+$extractorType=$asm.GetType('Codepass.CodeExtractor')
+Assert 'accept:empty-matches-all' (Call $extractorType 'MatchesAcceptKeywords' $null @('anything goes',''))
+Assert 'accept:null-text-unmatched' (-not (Call $extractorType 'MatchesAcceptKeywords' $null @($null,'verification')))
+Assert 'accept:case-insensitive-match' (Call $extractorType 'MatchesAcceptKeywords' $null @('SECURITY code','security'))
 
 $smsCfg=NewConfig; $smsCfg.SmsMaxLength=500
 $programType.GetField('cfg',$flags).SetValue($null,$smsCfg)
@@ -133,6 +158,18 @@ Assert 'concurrency:rollback-lower-limit-not-dropped' ((Snapshot).Count -eq $bef
 $smsCfg.SmsMaxLength=50
 [void](Call $deliveryType 'HandleIncoming' $delivery @($tooLong,'email','synthetic@example.com',$false,$false,$true))
 Assert 'email:unaffected-by-sms-limit' ((Snapshot).Count -eq $beforeConcurrent+2 -and (Snapshot)[0].Channel -eq 'email')
+$acceptBase=(Snapshot).Count
+$smsCfg.SmsAcceptKeywords='verification'
+[void](Call $deliveryType 'HandleIncoming' $delivery @('order 246810 shipped','http','Synthetic',$false,$false,$false))
+Assert 'accept:unmatched-not-recorded' ((Snapshot).Count -eq $acceptBase)
+[void](Call $deliveryType 'HandleIncoming' $delivery @('verification code 246811','http','Synthetic',$false,$false,$false))
+Assert 'accept:matched-recorded' ((Snapshot).Count -eq $acceptBase+1)
+$smsCfg.SmsAcceptKeywords='VERIFICATION'
+[void](Call $deliveryType 'HandleIncoming' $delivery @('verification code 246812','http','Synthetic',$false,$false,$false))
+Assert 'accept:case-insensitive' ((Snapshot).Count -eq $acceptBase+2)
+$smsCfg.SmsAcceptKeywords=''
+[void](Call $deliveryType 'HandleIncoming' $delivery @('order 246813 shipped','http','Synthetic',$false,$false,$false))
+Assert 'accept:empty-list-accepts-all' ((Snapshot).Count -eq $acceptBase+3)
 
 $uiCfg=NewConfig; $uiCfg.SmsMaxLength=500
 $uiPath=Join-Path $testRoot 'ui-config.ini'; $uiCfg.Save($uiPath)
@@ -150,6 +187,24 @@ Assert 'ui:length-invalid-draft-kept' ((Element $window 'txtSmsMaxLength').Text 
 (Element $window 'txtSmsMaxLength').Text='10001'
 Assert 'ui:length-upper-limit-rejected' (-not (Call $windowType 'ApplySettings' $window @()))
 (Element $window 'txtSmsMaxLength').Text='650'
+Assert 'ui:accept-field-present' ($null -ne (Element $window 'txtAcceptKeywords'))
+(Element $window 'txtAcceptKeywords').Text="verification`ncode"
+Assert 'ui:accept-save' (Call $windowType 'ApplySettings' $window @())
+Assert 'ui:accept-persisted' ($uiCfg.SmsAcceptKeywords -eq "verification`ncode" -and (Call $configType 'Load' $null @($uiPath)).SmsAcceptKeywords -eq "verification`ncode")
+$invalidAccept=((1..65|ForEach-Object{'k'}) -join "`n")
+(Element $window 'txtAcceptKeywords').Text=$invalidAccept
+Assert 'ui:accept-invalid-rejected' (-not (Call $windowType 'ApplySettings' $window @()))
+Assert 'ui:accept-invalid-draft-kept' ((Element $window 'txtAcceptKeywords').Text -eq $invalidAccept -and $uiCfg.SmsAcceptKeywords -eq "verification`ncode")
+(Element $window 'txtAcceptKeywords').Text="verification`ncode"
+$acceptAddBox=Element $window 'txtAcceptKeywordAdd'
+[void](Call $windowType 'AddAcceptKeywords' $window @())
+$acceptAddBox.Text='otp'
+[void](Call $windowType 'AddAcceptKeywords' $window @())
+Assert 'ui:accept-add-merged' ((Element $window 'txtAcceptKeywords').Text -eq "verification`ncode`notp")
+Assert 'ui:accept-add-cleared' ($acceptAddBox.Text.Length -eq 0)
+Assert 'ui:accept-add-save' (Call $windowType 'ApplySettings' $window @())
+Assert 'ui:accept-add-persisted' ($uiCfg.SmsAcceptKeywords -eq "verification`ncode`notp")
+Assert 'ui:accept-add-persisted-disk' ((Call $configType 'Load' $null @($uiPath)).SmsAcceptKeywords -eq "verification`ncode`notp")
 [void](Call $windowType 'SelectSection' $window @('security'))
 $privacyText=[string][char]0x9690+[char]0x79C1+[char]0x8BBE+[char]0x7F6E
 Assert 'privacy:nav-renamed' ((Element $window 'navSecurity').Content -eq $privacyText)

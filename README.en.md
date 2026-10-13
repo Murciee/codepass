@@ -24,7 +24,7 @@ Android SMS or email code → Windows → clipboard
 
 ## Features
 
-- **📱 SMS codes** — Forward from Android over LAN, EasyTier or ntfy
+- **📱 SMS codes** — Forward from Android over LAN, EasyTier or ntfy; filter by acceptance keywords
 - **📧 Email codes** — QQ, 163, 126, Gmail, Outlook and custom IMAP; read status untouched
 - **📋 Auto copy** — Paste codes the moment they arrive; optional notifications and clipboard clearing
 - **🕘 History** — Search, filters and original text; 10-minute cleanup by default
@@ -47,7 +47,7 @@ Android SMS or email code → Windows → clipboard
 
 ## Downloads
 
-Current Windows version: **v1.0.7**; phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
+Current Windows version: **v1.0.8**; phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
 
 | Asset | Purpose |
 | --- | --- |

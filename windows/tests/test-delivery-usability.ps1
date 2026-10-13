@@ -59,12 +59,19 @@ $path=Join-Path $root 'history.txt';[void](Call $history 'Init' $null @($path))
 $now=[DateTime]::UtcNow;$unix=Call $identity 'UnixTime' $null @($now)
 function Sms([string]$body,[string]$id,[DateTime]$when){return Call $deliveryType 'ReceiveSms' $delivery @($body,'http','Synthetic',$id,$when,$false,$false,$null)}
 function Count{ return (Call $history 'Snapshot' $null @()).Count }
+Assert 'sms:default-accept-keywords-present' ($cfg.SmsAcceptKeywords.Contains('验证码') -and $cfg.SmsAcceptKeywords.Contains('OTP'))
 Assert 'sms:first-received' ((Sms 'verification code 234567' 'message-a' $now).ToString() -eq 'Received')
 Assert 'sms:stable-id-dedup' ((Sms 'verification code 234567' 'message-a' $now).ToString() -eq 'Duplicate' -and (Count) -eq 1)
 Assert 'sms:same-code-different-message-kept' ((Sms 'verification code 234567' 'message-b' $now).ToString() -eq 'Received')
 [void](Sms 'verification code 345678' '' $now)
 Assert 'sms:legacy-cross-channel-dedup' ((Call $deliveryType 'ReceiveSms' $delivery @('verification code 345678','ntfy','Other','',$now,$false,$false,$null)).ToString() -eq 'Duplicate')
 Assert 'sms:old-replay-ignored' ((Sms 'verification code 456789' 'old' $now.AddMinutes(-11)).ToString() -eq 'Ignored')
+$cfg.SmsAcceptKeywords='verification'
+Assert 'sms:accept-gate-blocks-unmatched' ((Sms 'order 246810 shipped' 'accept-a' $now).ToString() -eq 'Ignored' -and (Count) -eq 3)
+Assert 'sms:accept-gate-passes-matched' ((Sms 'verification code 246811' 'accept-b' $now).ToString() -eq 'Received')
+Assert 'sms:accept-gate-case-insensitive' ((Sms 'VERIFICATION CODE 246812' 'accept-c' $now).ToString() -eq 'Received')
+$cfg.SmsAcceptKeywords=''
+Assert 'sms:accept-empty-accepts-all' ((Sms 'order 246813 shipped' 'accept-d' $now).ToString() -eq 'Received')
 $wire=@{codepass=1;id='envelope-a';time=$unix;sender_b64='';body_b64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('verification code 567890'))}|ConvertTo-Json -Compress
 Assert 'sms:empty-sender-envelope-supported' ((Sms $wire '' $now).ToString() -eq 'Received')
 [IO.File]::SetAttributes($path,[IO.FileAttributes]::ReadOnly)

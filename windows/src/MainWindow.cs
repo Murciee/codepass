@@ -30,7 +30,7 @@ namespace Codepass
         readonly string cfgPath;
 
          TextBox txtPort, txtPcIp, txtNtfyServer, txtNtfyTopic, txtMin, txtMax, txtClear, txtFilterKeywords, txtFilterRegex;
-         TextBox txtSmsMaxLength;
+         TextBox txtSmsMaxLength, txtAcceptKeywords;
          SecretField fldToken, fldNtfyToken;
          CheckBox chkTip, chkStartup, chkAutoLock;
         ComboBox cmbPrivacy, cmbEmailPrivacy;
@@ -42,6 +42,8 @@ namespace Codepass
         Button btnEmailAuthHelp;
         TextBox txtEmailKeywordAdd;
         WrapPanel emailKeywordTags;
+        TextBox txtAcceptKeywordAdd;
+        WrapPanel acceptKeywordTags;
         CheckBox chkEmailSaveBody;
         TextBlock lblEmailPreviewResult;
         TextBlock lblEmailTestResult, lblStorageError, lblQqStatus;
@@ -184,6 +186,7 @@ namespace Codepass
               txtClear      = Find<TextBox>(root, "txtClear");
               txtFilterKeywords = Find<TextBox>(root, "txtFilterKeywords");
               txtFilterRegex = Find<TextBox>(root, "txtFilterRegex");
+              txtAcceptKeywords = Find<TextBox>(root, "txtAcceptKeywords");
               chkTip        = Find<CheckBox>(root, "chkTip");
               chkStartup    = Find<CheckBox>(root, "chkStartup");
               chkAutoLock   = Find<CheckBox>(root, "chkAutoLock");
@@ -220,6 +223,8 @@ namespace Codepass
                btnEmailAuthHelp = Find<Button>(root, "btnEmailAuthHelp");
                txtEmailKeywordAdd = Find<TextBox>(root, "txtEmailKeywordAdd");
                emailKeywordTags = Find<WrapPanel>(root, "emailKeywordTags");
+                acceptKeywordTags = Find<WrapPanel>(root, "acceptKeywordTags");
+                txtAcceptKeywordAdd = Find<TextBox>(root, "txtAcceptKeywordAdd");
              txtEmailServer = Find<TextBox>(root, "txtEmailServer");
              txtEmailAccount = Find<TextBox>(root, "txtEmailAccount");
              txtEmailPoll = Find<TextBox>(root, "txtEmailPoll");
@@ -296,6 +301,12 @@ namespace Codepass
                txtHistorySearch.PreviewKeyDown += delegate(object sender, KeyEventArgs e)
                { if (e.Key == Key.Escape) { txtHistorySearch.Clear(); e.Handled = true; } };
                Wire(root, "btnDiagnostics", delegate { ShowDiagnostics(); });
+                 Wire(root, "btnAcceptKeywordAdd", delegate { AddAcceptKeywords(); });
+                 Wire(root, "btnAcceptKeywordDefault", delegate
+                 {
+                     if (MessageBox.Show(this, "恢复默认接收关键字（留空表示全部收取）？", "确认", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+                     txtAcceptKeywords.Text = new Config().SmsAcceptKeywords; QueueSection(SettingsSection.SmsRules);
+                 });
                 Wire(root, "btnEmailKeywordAdd", delegate { AddEmailKeywords(); });
                 Wire(root, "btnEmailKeywordDefault", delegate
                 {
@@ -362,7 +373,7 @@ namespace Codepass
          void WireAutoApply(FrameworkElement root)
         {
                TextBox[] boxes = new TextBox[] { txtPort, txtPcIp, txtMin, txtMax, txtClear, txtSmsMaxLength,
-                   txtNtfyServer, txtNtfyTopic, txtFilterKeywords, txtFilterRegex,
+                   txtNtfyServer, txtNtfyTopic, txtFilterKeywords, txtFilterRegex, txtAcceptKeywords,
                    txtEmailServer, txtEmailAccount, txtEmailPoll, txtEmailKeywords, txtEmailSenders };
             foreach (TextBox tb in boxes)
             {
@@ -373,7 +384,7 @@ namespace Codepass
                  {
                      // 多行过滤/邮箱输入框用回车换行，失焦时自动保存；其他输入框回车立即保存。
                      if (e.Key == Key.Return
-                         && s != txtFilterKeywords && s != txtFilterRegex
+                         && s != txtFilterKeywords && s != txtFilterRegex && s != txtAcceptKeywords
                           && s != txtEmailKeywords && s != txtEmailSenders) QueueSection(SectionFor((FrameworkElement)s));
                  };
             }
@@ -399,8 +410,22 @@ namespace Codepass
               if (txtPcIp != null) txtPcIp.TextChanged += delegate { if (!loadingValues) autoPcIp = ""; };
                if (txtEmailServer != null) txtEmailServer.TextChanged += delegate { UpdateEmailAuthHint(); };
                if (txtEmailKeywords != null) txtEmailKeywords.TextChanged += delegate { RenderEmailKeywordTags(); };
+                if (txtAcceptKeywords != null) txtAcceptKeywords.TextChanged += delegate { RenderAcceptKeywordTags(); };
                if (txtEmailSubjectPreview != null) txtEmailSubjectPreview.TextChanged += delegate { UpdateEmailPreview(); };
-               if (txtEmailKeywordAdd != null)
+               if (txtAcceptKeywordAdd != null)
+                {
+                    txtAcceptKeywordAdd.KeyDown += delegate(object s, KeyEventArgs e)
+                    {
+                        if (e.Key == Key.Return) { AddAcceptKeywords(); e.Handled = true; }
+                        if (e.Key == Key.Escape) { txtAcceptKeywordAdd.Clear(); txtAcceptKeywordAdd.Visibility = Visibility.Collapsed; e.Handled = true; }
+                    };
+                    // 收起条件：没有内容又失去焦点（有内容时保留输入框）。
+                    txtAcceptKeywordAdd.LostKeyboardFocus += delegate
+                    {
+                        if (txtAcceptKeywordAdd.Text.Length == 0) txtAcceptKeywordAdd.Visibility = Visibility.Collapsed;
+                    };
+                }
+                if (txtEmailKeywordAdd != null)
                {
                    txtEmailKeywordAdd.KeyDown += delegate(object s, KeyEventArgs e)
                    {
@@ -417,7 +442,7 @@ namespace Codepass
 
          void WireMultilineScrolling()
          {
-             TextBox[] boxes = { txtFilterKeywords, txtFilterRegex, txtEmailKeywords, txtEmailSenders };
+             TextBox[] boxes = { txtFilterKeywords, txtFilterRegex, txtAcceptKeywords, txtEmailKeywords, txtEmailSenders };
              foreach (TextBox box in boxes)
                  if (box != null) box.PreviewMouseWheel += ScrollMultilineTextBox;
          }

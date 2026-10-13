@@ -24,7 +24,7 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 
 ## 核心功能
 
-- **📱 短信验证码** — Android 转发，支持局域网、EasyTier 与 ntfy
+- **📱 短信验证码** — Android 转发，支持局域网、EasyTier 与 ntfy；可按接收关键字筛选
 - **📧 邮箱验证码** — QQ、163、126、Gmail、Outlook 及自定义 IMAP，不改变邮件已读状态
 - **📋 自动复制** — 到达即可粘贴；可选通知与剪贴板自动清空
 - **🕘 记录管理** — 搜索、分类筛选与原文查看；默认 10 分钟自动清理
@@ -47,7 +47,7 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 
 ## 下载
 
-当前 Windows 版本 **v1.0.7**，手机模块为 v1.0.3。前往 [GitHub Releases](https://github.com/Murciee/codepass/releases/latest) 下载。
+当前 Windows 版本 **v1.0.8**，手机模块为 v1.0.3。前往 [GitHub Releases](https://github.com/Murciee/codepass/releases/latest) 下载。
 
 | 文件 | 用途 |
 | --- | --- |

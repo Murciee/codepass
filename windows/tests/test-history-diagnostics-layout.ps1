@@ -249,7 +249,7 @@ foreach($section in @('general','security')) {
     [void](Call $windowType 'SelectSection' $window @($section))
     Layout 780 760
     Assert ('layout:no-horizontal-scroll-'+$section) ($content.FindName('settingsScroll').ExtentWidth -le $content.FindName('settingsScroll').ViewportWidth+1)
-    if($section -eq 'general') { CheckControls 'sms-narrow' @('txtPcIp','btnDetect','btnTestPc','tokenHost','ntfyTokenHost','txtNtfyServer','btnTestNtfy','txtFilterKeywords','txtFilterRegex','chkStartup','btnGen') }
+    if($section -eq 'general') { CheckControls 'sms-narrow' @('txtPcIp','btnDetect','btnTestPc','tokenHost','ntfyTokenHost','txtNtfyServer','btnTestNtfy','txtFilterKeywords','txtFilterRegex','btnAcceptKeywordAdd','btnAcceptKeywordDefault','chkStartup','btnGen') }
     else {
         Assert 'layout:lock-action-hidden-until-enabled' ($content.FindName('btnLock').Visibility -eq [Windows.Visibility]::Collapsed)
         # The lock screen uses the same inline eye: one click reveals, another restores the mask.
@@ -377,6 +377,12 @@ foreach($size in @(640,780,1100,1280)) {
     [void]$sync.Invoke($window,@($toggle,$true))
     Assert ('cards:toggle-knob-lands-'+$size) ([Math]::Abs($shift.X-$final) -lt 0.6)
     $toggle.IsChecked=$wasOn
+    # Keyword add box stays hidden until Add is pressed.
+    $acceptInput=$content.FindName('txtAcceptKeywordAdd')
+    Assert ('cards:accept-keyword-input-hidden-'+$size) ($acceptInput.Visibility -eq [Windows.Visibility]::Collapsed)
+    $content.FindName('btnAcceptKeywordAdd').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
+    Assert ('cards:accept-keyword-input-shown-on-add-'+$size) ($acceptInput.Visibility -eq [Windows.Visibility]::Visible)
+    $acceptInput.Visibility=[Windows.Visibility]::Collapsed
     if($size -eq 1100) {
         # Both directions must retain append-at-end behavior after focus and layout settle.
         $secret=$windowType.GetField('fldNtfyToken',$flags).GetValue($window)

@@ -95,6 +95,8 @@ namespace Codepass
                   txtClear.Text = cfg.AutoClearSeconds.ToString();
                   if (txtFilterKeywords != null) txtFilterKeywords.Text = cfg.FilterKeywords;
                   if (txtFilterRegex != null) txtFilterRegex.Text = cfg.FilterRegex;
+                  if (txtAcceptKeywords != null) txtAcceptKeywords.Text = cfg.SmsAcceptKeywords;
+                  RenderAcceptKeywordTags();
                   if (txtEmailServer != null)
                   {
                       txtEmailServer.Text = cfg.EmailServer;
@@ -270,6 +272,65 @@ namespace Codepass
              if (button == null) return;
              button.IsEnabled = enabled;
              button.Content = text;
+         }
+
+         // ---------- 短信接收关键字标签 ----------
+
+         static List<string> AcceptKeywordList(string text)
+         {
+             List<string> list = new List<string>();
+             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+             foreach (string line in (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+             {
+                 string value = line.Trim();
+                 if (value.Length > 0 && seen.Add(value)) list.Add(value);
+             }
+             return list;
+         }
+
+         void RenderAcceptKeywordTags()
+         {
+             if (acceptKeywordTags == null || txtAcceptKeywords == null) return;
+             acceptKeywordTags.Children.Clear();
+             foreach (string keyword in AcceptKeywordList(txtAcceptKeywords.Text))
+             {
+                 string value = keyword;
+                 Border chip = new Border { Background = MakeBrush(0xE8, 0xF2, 0xFC), CornerRadius = new CornerRadius(12),
+                     Padding = new Thickness(10, 2, 6, 2), Margin = new Thickness(0, 0, 6, 6) };
+                 StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
+                 content.Children.Add(new TextBlock { Text = value, Foreground = AccentTx, FontSize = 13,
+                     VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 250, ToolTip = value });
+                 Button remove = new Button { Content = "×", Width = 24, Height = 24, FontSize = 16,
+                     Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = FgFaint,
+                     Cursor = Cursors.Hand, ToolTip = "移除关键字", Margin = new Thickness(4, 0, 0, 0) };
+                 System.Windows.Automation.AutomationProperties.SetName(remove, "移除关键字 " + value);
+                 remove.Click += delegate
+                 {
+                     List<string> words = AcceptKeywordList(txtAcceptKeywords.Text);
+                     words.Remove(value);
+                     txtAcceptKeywords.Text = string.Join("\n", words.ToArray());
+                     QueueSection(SettingsSection.SmsRules);
+                 };
+                 content.Children.Add(remove); chip.Child = content; acceptKeywordTags.Children.Add(chip);
+             }
+         }
+
+         void AddAcceptKeywords()
+         {
+             if (txtAcceptKeywordAdd == null || txtAcceptKeywords == null) return;
+             // 平时不显示输入框：第一次点“添加”先展开并聚焦，输入后再点（或回车）才写入。
+             if (txtAcceptKeywordAdd.Visibility != Visibility.Visible)
+             {
+                 txtAcceptKeywordAdd.Visibility = Visibility.Visible;
+                 txtAcceptKeywordAdd.Focus();
+                 return;
+             }
+             string text = string.Join("\n", AcceptKeywordList(txtAcceptKeywords.Text + "\n" + txtAcceptKeywordAdd.Text).ToArray());
+             string error;
+             if (!CodeExtractor.ValidateKeywordLines(text, "接收关键字", out error)) { ShowToast(error); return; }
+             txtAcceptKeywords.Text = text;
+             txtAcceptKeywordAdd.Clear();
+             QueueSection(SettingsSection.SmsRules);
          }
 
           void OnExport()

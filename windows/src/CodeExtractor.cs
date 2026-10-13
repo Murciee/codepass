@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -38,13 +39,17 @@ namespace Codepass
             // 通知类短信只在进入无关键词数字回退前过滤，避免误伤真实验证码。
             if (IsInformationalSms(s)) return null;
 
-            // 4) 回退: 独立 4~8 位数字; 优先 6 位(验证码最常见), 否则取最后一个
+            // 4) 回退: 独立 4~8 位数字; 优先 6 位(验证码最常见), 否则取最后一个。
+            // 日期年份(如 2027.01.12 的 2027)不参与回退, 避免把有效期当成验证码。
             MatchCollection ms = Regex.Matches(s, @"(?<!\d)(\d{" + min + "," + max + @"})(?!\d)");
-            if (ms.Count > 0)
+            List<Match> fallback = new List<Match>();
+            foreach (Match candidate in ms)
+                if (!IsDateYear(s, candidate)) fallback.Add(candidate);
+            if (fallback.Count > 0)
             {
-                for (int i = ms.Count - 1; i >= 0; i--)
-                    if (ms[i].Groups[1].Value.Length == 6) return ms[i].Groups[1].Value;
-                return ms[ms.Count - 1].Groups[1].Value;
+                for (int i = fallback.Count - 1; i >= 0; i--)
+                    if (fallback[i].Groups[1].Value.Length == 6) return fallback[i].Groups[1].Value;
+                return fallback[fallback.Count - 1].Groups[1].Value;
             }
 
             return null;
@@ -105,10 +110,53 @@ namespace Codepass
             return false;
         }
 
+        /// <summary>
+        /// 接收关键字闸门：留空表示全部收取；非空时须命中任一行才收取（不区分大小写的包含判定）。
+        /// </summary>
+        public static bool MatchesAcceptKeywords(string text, string keywordLines)
+        {
+            if ((keywordLines ?? "").Trim().Length == 0) return true;
+            string value = text ?? "";
+            string[] keywords = SplitLines(keywordLines);
+            int count = Math.Min(keywords.Length, MaxFilterLines);
+            for (int i = 0; i < count; i++)
+            {
+                string keyword = keywords[i].Trim();
+                if (keyword.Length > 0 && value.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
+        }
+
+        /// <summary>只校验关键字行的条数和长度；过滤关键字与接收关键字共用，错误文案按 label 区分。</summary>
+        public static bool ValidateKeywordLines(string keywordLines, string label, out string error)
+        {
+            error = null;
+            string text = keywordLines ?? "";
+            if (text.Length > MaxFilterText)
+            {
+                error = label + "总长度不能超过 " + MaxFilterText + " 个字符。";
+                return false;
+            }
+            string[] keywords = SplitLines(keywordLines);
+            if (keywords.Length > MaxFilterLines)
+            {
+                error = label + "最多支持 " + MaxFilterLines + " 行。";
+                return false;
+            }
+            for (int i = 0; i < keywords.Length; i++)
+            {
+                if (keywords[i].Trim().Length > 1024)
+                {
+                    error = "第 " + (i + 1) + " 条" + label + "不能超过 1024 个字符。";
+                    return false;
+                }
+            }
+            return true;
+        }
+
         /// <summary>校验用户配置的过滤规则，返回面向用户的错误信息。</summary>
         public static bool ValidateFilters(string keywordLines, string regexLines, out string error)
         {
-            error = null;
             string keywordText = keywordLines ?? "";
             string regexText = regexLines ?? "";
             if (keywordText.Length + regexText.Length > MaxFilterText)
@@ -116,20 +164,7 @@ namespace Codepass
                 error = "过滤规则总长度不能超过 " + MaxFilterText + " 个字符。";
                 return false;
             }
-            string[] keywords = SplitLines(keywordLines);
-            if (keywords.Length > MaxFilterLines)
-            {
-                error = "过滤关键字最多支持 " + MaxFilterLines + " 行。";
-                return false;
-            }
-            for (int i = 0; i < keywords.Length; i++)
-            {
-                if (keywords[i].Trim().Length > 1024)
-                {
-                    error = "第 " + (i + 1) + " 条关键字不能超过 1024 个字符。";
-                    return false;
-                }
-            }
+            if (!ValidateKeywordLines(keywordLines, "过滤关键字", out error)) return false;
 
             string[] patterns = SplitLines(regexLines);
             if (patterns.Length > MaxFilterLines)
@@ -177,6 +212,19 @@ namespace Codepass
                 && (text.IndexOf("退订", StringComparison.OrdinalIgnoreCase) >= 0
                     || text.IndexOf("回复", StringComparison.OrdinalIgnoreCase) >= 0);
             return antiFraud || overseasService || serviceInstruction || marketing;
+        }
+
+        // 只拦“年份 + 日期分隔”这一种形态：2027.01 / 2027-1 / 2027/1 / 2027年。
+        // 后面是句号、空格等其它情形不受影响（例如“验证码 2027。请勿泄露”）。
+        static bool IsDateYear(string text, Match match)
+        {
+            string value = match.Groups[1].Value;
+            if (value.Length != 4 || (value[0] != '1' && value[0] != '2')) return false;
+            int end = match.Index + match.Length;
+            if (end >= text.Length) return false;
+            char next = text[end];
+            if (next == '年') return true;
+            return (next == '.' || next == '-' || next == '/') && end + 1 < text.Length && text[end + 1] >= '0' && text[end + 1] <= '9';
         }
 
         static bool IsCode(string s, int min, int max)

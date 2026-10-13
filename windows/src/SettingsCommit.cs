@@ -26,6 +26,7 @@ namespace Codepass
                 target.MinLen = draft.MinLen; target.MaxLen = draft.MaxLen; target.SmsMaxLength = draft.SmsMaxLength;
                 target.AutoClearSeconds = draft.AutoClearSeconds; target.ShowTip = draft.ShowTip;
                 target.FilterKeywords = draft.FilterKeywords; target.FilterRegex = draft.FilterRegex;
+                target.SmsAcceptKeywords = draft.SmsAcceptKeywords;
             }
             if ((section & SettingsSection.Ntfy) != 0)
             { target.NtfyServer = draft.NtfyServer; target.NtfyTopic = draft.NtfyTopic; target.NtfyToken = draft.NtfyToken; }

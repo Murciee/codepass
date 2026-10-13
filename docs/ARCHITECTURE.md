@@ -21,7 +21,7 @@
 | `windows\src\IncomingDelivery.cs` | 短信规则快照、短信/邮件统一投递、历史持久化、延迟展示门禁 | 提取/过滤、去重结果、过期/删除/退出取消 |
 | `windows\src\ClipboardService.cs` | 独立消息窗口、后台 STA 写入重试、请求号、手动复制、清理计时器与释放 | 剪贴板所有权、旧请求取消、序列号保护 |
 | `windows\src\MainWindow.cs` | 主窗口共享字段、构造初始化、控件查找/事件接线、响应式布局、窗口/托盘生命周期 | 控件初始化、共享状态、窗口行为、跨页面事件 |
-| `windows\src\MainWindow.Settings.cs` | 页面切换、普通设置、配置读取/保存、导入导出、电脑/ntfy 连通性、手机配置生成 | 新增或修改短信/电脑接收设置、配置保存与校验 |
+| `windows\src\MainWindow.Settings.cs` | 页面切换、普通设置、短信接收关键字标签、配置读取/保存、导入导出、电脑/ntfy 连通性、手机配置生成 | 新增或修改短信/电脑接收设置、配置保存与校验 |
 | `windows\src\MainWindow.Email.cs` | 邮箱服务商预设、关键词标签、邮箱预览、状态刷新和连接测试 | 邮箱设置交互、状态显示、邮箱连接测试 |
 | `windows\src\MainWindow.Security.cs` | 密码锁、自动锁定状态和密钥字段创建 | 密码锁、自动锁定和令牌输入 |
 | `windows\src\MainWindow.History.cs` | 记录频道筛选、历史列表、行操作菜单、单条删除、原文窗口和 toast 提示 | 记录列表、复制验证码、单条删除、原文显示和页面提示 |
@@ -76,7 +76,7 @@
 构造函数、共享字段和窗口生命周期仍在 `MainWindow.cs`；页面行为按下面的文件寻找：
 
 1. `MainWindow.cs`：构造函数与控件初始化、自动保存事件接线、响应式布局、共享窗口/托盘行为；
-2. `MainWindow.Settings.cs`：页面切换、普通设置、配置同步、导入导出、电脑/ntfy 测试；
+2. `MainWindow.Settings.cs`：页面切换、普通设置、短信接收关键字标签、配置同步、导入导出、电脑/ntfy 测试；
 3. `MainWindow.Email.cs`：邮箱服务商、关键词、邮箱状态和邮箱连接测试；
 4. `MainWindow.Security.cs`：密码锁、自动锁定和密钥字段；隐私通知选项的配置同步在 `MainWindow.Settings.cs`；
 5. `MainWindow.History.cs`：记录搜索/筛选、复制验证码、原文窗口和 toast；

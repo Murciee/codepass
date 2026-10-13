@@ -55,7 +55,8 @@ namespace Codepass
             {
                 Config snapshot = new Config(); snapshot.CopyFrom(configuration());
                 string ignored = SmsExceedsLengthLimit(text, snapshot.SmsMaxLength) ? "SMS skipped: length limit exceeded"
-                    : CodeExtractor.IsFiltered(text, snapshot.FilterKeywords, snapshot.FilterRegex) ? "message filtered" : null;
+                    : CodeExtractor.IsFiltered(text, snapshot.FilterKeywords, snapshot.FilterRegex) ? "message filtered"
+                    : !CodeExtractor.MatchesAcceptKeywords(text, snapshot.SmsAcceptKeywords) ? "SMS skipped: acceptance keywords not matched" : null;
                 string code = ignored == null ? CodeExtractor.Extract(text, snapshot.MinLen, snapshot.MaxLen) : null;
                 lock (Config.SaveGate)
                 {
@@ -64,7 +65,9 @@ namespace Codepass
                     if (ignored != null || code == null)
                     {
                         Log.Write("[" + src + "] " + (ignored ?? "未识别到验证码"));
-                        RuntimeStatus.SmsResult = ignored == "message filtered" ? "消息命中过滤规则" : ignored != null ? "短信超过长度上限" : "消息中未识别到验证码";
+                        RuntimeStatus.SmsResult = ignored == "message filtered" ? "消息命中过滤规则"
+                            : ignored == "SMS skipped: length limit exceeded" ? "短信超过长度上限"
+                            : ignored != null ? "未命中接收关键字" : "消息中未识别到验证码";
                         statusChanged(); return DeliveryOutcome.Ignored;
                     }
                     DeliveryOutcome result = DeliverIncoming(text, src, sender, autoCopy, notify, false, code,
@@ -80,7 +83,8 @@ namespace Codepass
         static bool SameSmsRules(Config a, Config b)
         {
             return a.SmsMaxLength == b.SmsMaxLength && a.MinLen == b.MinLen && a.MaxLen == b.MaxLen
-                && a.FilterKeywords == b.FilterKeywords && a.FilterRegex == b.FilterRegex;
+                && a.FilterKeywords == b.FilterKeywords && a.FilterRegex == b.FilterRegex
+                && a.SmsAcceptKeywords == b.SmsAcceptKeywords;
         }
 
         // 合法代理对算一个字符，空格与换行也计入。

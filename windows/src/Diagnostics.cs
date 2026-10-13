@@ -62,6 +62,7 @@ namespace Codepass
             if (message.StartsWith("clipboard write succeeded (tries=", StringComparison.Ordinal)) return "剪贴板写入成功";
             if (message == "[http] SMS skipped: length limit exceeded" || message == "[ntfy] SMS skipped: length limit exceeded") return "短信超过长度上限";
             if (message == "[http] message filtered" || message == "[ntfy] message filtered") return "短信命中过滤规则";
+            if (message == "[http] SMS skipped: acceptance keywords not matched" || message == "[ntfy] SMS skipped: acceptance keywords not matched") return "短信未命中接收关键字";
             return null;
         }
 
@@ -108,6 +109,7 @@ namespace Codepass
                 report.AppendLine("验证码长度=" + config.MinLen + "～" + config.MaxLen);
                 report.AppendLine("短信长度上限=" + config.SmsMaxLength);
                 report.AppendLine("短信关键词条数=" + LineCount(config.FilterKeywords));
+                report.AppendLine("短信接收关键字条数=" + LineCount(config.SmsAcceptKeywords));
                 report.AppendLine("短信正则条数=" + LineCount(config.FilterRegex));
                 report.AppendLine("剪贴板清理秒数=" + config.AutoClearSeconds);
                 report.AppendLine("记录保留分钟数=" + config.HistoryRetentionMinutes);

@@ -94,8 +94,10 @@ namespace Codepass
                     || !ReadNumber(txtClear, "剪贴板清理秒数", 0, 86400, out draft.AutoClearSeconds)) return false;
                 if (draft.MaxLen < draft.MinLen) return Invalid(txtMax, "最长验证码长度不能小于最短长度");
                 draft.FilterKeywords = txtFilterKeywords.Text; draft.FilterRegex = txtFilterRegex.Text;
+                draft.SmsAcceptKeywords = txtAcceptKeywords.Text;
                 string error;
                 if (!CodeExtractor.ValidateFilters(draft.FilterKeywords, draft.FilterRegex, out error)) return Invalid(txtFilterRegex, error);
+                if (!CodeExtractor.ValidateKeywordLines(draft.SmsAcceptKeywords, "接收关键字", out error)) return Invalid(txtAcceptKeywords, error);
                 draft.ShowTip = chkTip.IsChecked == true;
             }
             if (Includes(section, SettingsSection.Ntfy))
