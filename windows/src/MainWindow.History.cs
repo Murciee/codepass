@@ -37,19 +37,21 @@ namespace Codepass
         {
             if (listHost == null) return;
             CloseHistoryActions();
+            EnsureHistoryScroll();
             historyDirty = false;
             if (historyRefreshTimer != null) historyRefreshTimer.Stop();
             double offset = historyScroll == null ? 0 : historyScroll.VerticalOffset;
-            listHost.Children.Clear();
             selectedRow = null;
+            List<HistoryItem> visible = new List<HistoryItem>();
             int smsCount = 0, emailCount = 0;
             foreach (HistoryItem it in History.Snapshot())
             {
                 bool email = it.Channel == "email";
                 if (email) emailCount++; else smsCount++;
-                if (HistorySearch.Matches(it, historyChannel, txtHistorySearch == null ? "" : txtHistorySearch.Text))
-                    listHost.Children.Add(BuildRow(it));
+                if (HistorySearch.Matches(it, historyChannel, txtHistorySearch == null ? "" : txtHistorySearch.Text)) visible.Add(it);
             }
+            listHost.ItemsSource = null;
+            listHost.ItemsSource = visible;
             SetNavState(tabSmsHistory, historyChannel == "sms");
             SetNavState(tabEmailHistory, historyChannel == "email");
             SetNavState(tabAllHistory, historyChannel == "all");
@@ -57,26 +59,52 @@ namespace Codepass
             if (tabSmsHistory != null) tabSmsHistory.Content = "短信 (" + smsCount + ")";
             if (tabEmailHistory != null) tabEmailHistory.Content = "邮件 (" + emailCount + ")";
             if (lblCount != null)
-                lblCount.Text = "显示 " + listHost.Children.Count + " / " + (smsCount + emailCount) + " 条 · 最多 " + History.Max + " 条";
+                lblCount.Text = "显示 " + visible.Count + " / " + (smsCount + emailCount) + " 条 · 最多 " + History.Max + " 条";
             if (lblHistoryEmpty != null)
             {
                 lblHistoryEmpty.Text = txtHistorySearch != null && txtHistorySearch.Text.Trim().Length > 0
                     ? "没有匹配的记录，请调整搜索词或重置筛选"
                     : historyChannel == "email" ? "暂无邮箱验证码记录" : historyChannel == "sms" ? "暂无短信验证码记录" : "暂无验证码记录";
-                lblHistoryEmpty.Visibility = listHost.Children.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                lblHistoryEmpty.Visibility = visible.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             }
-            if (historyScroll != null) historyScroll.ScrollToVerticalOffset(offset);
+            if (historyScroll != null)
+            {
+                listHost.UpdateLayout();
+                historyScroll.ScrollToVerticalOffset(offset);
+            }
             UpdateReceiveSummary();
             Button news = Find<Button>((FrameworkElement)Content, "btnNewRecords");
             if (news != null && offset <= 1) news.Visibility = Visibility.Collapsed;
+        }
+
+        internal void EnsureHistoryScroll()
+        {
+            if (historyScroll != null || listHost == null) return;
+            listHost.ApplyTemplate();
+            historyScroll = FindVisualChild<ScrollViewer>(listHost);
+        }
+
+        static T FindVisualChild<T>(DependencyObject root) where T : class
+        {
+            if (root == null) return null;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                T found = child as T;
+                if (found != null) return found;
+                found = FindVisualChild<T>(child);
+                if (found != null) return found;
+            }
+            return null;
         }
 
         /// <summary>窗口隐藏时释放历史页动态控件；记录数据保留，下次显示时完整重建。</summary>
         internal void ReleaseHistoryRows()
         {
             CloseHistoryActions();
-            if (listHost != null) listHost.Children.Clear();
+            if (listHost != null) listHost.ItemsSource = null;
             selectedRow = null;
+            selectedHistoryRow = null;
             historyDirty = true;
             searchChanged = false;
             if (historyRefreshTimer != null) historyRefreshTimer.Stop();
@@ -163,6 +191,40 @@ namespace Codepass
             };
             return row;
         }
+
+        internal void SelectHistoryRow(HistoryRowControl row)
+        {
+            if (selectedHistoryRow != null && !ReferenceEquals(selectedHistoryRow, row)) selectedHistoryRow.Background = Brushes.Transparent;
+            selectedHistoryRow = row;
+            if (row != null) row.Background = RowSel;
+        }
+
+        internal string HistoryPreviewText(HistoryItem item)
+        {
+            string text = item == null ? "" : (item.Raw ?? "");
+            if (text.Length <= 240) return text;
+            return text.Substring(0, 240) + "…";
+        }
+
+        internal void CopyHistoryCode(HistoryItem item)
+        {
+            if (item == null || string.IsNullOrEmpty(item.Code) || item.IsDeleted || lockOverlay.Visibility == Visibility.Visible) return;
+            try
+            {
+                if (Program.Clipboard.CopyManually(item.Code, new WindowInteropHelper(this).Handle)) ShowToast("已复制验证码 " + item.Code);
+                else ShowToast("复制失败，剪贴板被占用，请重试");
+            }
+            catch { ShowToast("复制失败，剪贴板被占用，请重试"); }
+        }
+
+        internal void EnsureHistoryRawTooltip(TextBlock cell, HistoryItem item)
+        { EnsureRawTooltip(cell, item); }
+
+        internal void ShowHistoryRawFromRow(HistoryItem item)
+        { ShowHistoryRaw(item); }
+
+        internal void ShowHistoryActionsFromRow(HistoryItem item, Button anchor)
+        { ShowHistoryActions(item, anchor); }
 
         void ShowHistoryActions(HistoryItem item, Button anchor)
         {

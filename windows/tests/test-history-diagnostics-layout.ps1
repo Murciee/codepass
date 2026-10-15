@@ -570,7 +570,8 @@ Assert 'layout:diagnostics-action-within-parent' (WithinParent ($content.FindNam
 Capture 'about-narrow.png' 780 560
 [void](Call $windowType 'SelectSection' $window @('history'))
 Capture 'history-small.png' 640 460
-Assert 'history:small-retention-input-and-hint-visible' ($content.FindName('txtHistoryRetention').IsVisible -and $content.FindName('historyRetentionHint').IsVisible -and $content.FindName('historyScroll').ActualHeight -ge 60)
+$historyViewport=Call $windowType 'get_HistoryScroll' $window @()
+Assert 'history:small-retention-input-and-hint-visible' ($content.FindName('txtHistoryRetention').IsVisible -and $content.FindName('historyRetentionHint').IsVisible -and $null -ne $historyViewport -and $historyViewport.ActualHeight -ge 60)
 $retentionHint=$content.FindName('historyRetentionHint')
 $hintBottom=$retentionHint.TranslatePoint((New-Object Windows.Point(0,$retentionHint.ActualHeight)),$content).Y
 Assert 'history:small-retention-hint-inside-window' ($hintBottom -lt $content.ActualHeight)

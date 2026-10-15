@@ -19,15 +19,18 @@ namespace Codepass
         static int stopGen;
         internal static string LastSignalText = "尚未检测到邮件提醒";
         static readonly int CurrentPid = Process.GetCurrentProcess().Id;
+        static readonly ManualResetEventSlim stopSignal = new ManualResetEventSlim(false);
 
         public static void RequestStop()
         {
             Interlocked.Increment(ref stopGen);
+            stopSignal.Set();
         }
 
         /// <summary>创建监测线程前取一个生成号，作为该线程的身份（见 EmailWatcher 同名机制）。</summary>
         public static int BeginGeneration()
         {
+            stopSignal.Reset();
             return Interlocked.Increment(ref stopGen);
         }
 
@@ -44,11 +47,17 @@ namespace Codepass
                 {
                     if (!Program.cfg.QqPopupEnabled)
                     {
-                        Thread.Sleep(1500);
+                        if (stopSignal.Wait(1500)) break;
                         continue;
                     }
-                    Thread.Sleep(700);
+                    if (!HasQqProcess())
+                    {
+                        if (stopSignal.Wait(5000)) break;
+                        continue;
+                    }
+                    if (stopSignal.Wait(700)) break;
                     if (gen != Volatile.Read(ref stopGen) || !Program.Running || !Program.cfg.QqPopupEnabled) break;
+                    if (!HasQqProcess()) continue;
                     loops++;
                     if (loops % 300 == 0) processNames.Clear();
 
@@ -75,7 +84,7 @@ namespace Codepass
                 catch (Exception ex)
                 {
                     Log.Write("qq popup error: " + ex.Message);
-                    Thread.Sleep(3000);
+                    if (stopSignal.Wait(3000)) break;
                 }
             }
             Log.Write("qq popup watcher stopped");
@@ -158,13 +167,36 @@ namespace Codepass
             return rect.Right >= screen.Right - 160 && rect.Bottom >= screen.Bottom - 160;
         }
 
+        static bool HasQqProcess()
+        {
+            foreach (string name in new string[] { "QQ", "TIM", "QQNT" })
+            {
+                Process[] processes = null;
+                try
+                {
+                    processes = Process.GetProcessesByName(name);
+                    if (processes.Length > 0) return true;
+                }
+                catch { }
+                finally
+                {
+                    if (processes != null)
+                        foreach (Process process in processes) { try { process.Dispose(); } catch { } }
+                }
+            }
+            return false;
+        }
+
         static bool IsQqProcess(int pid, Dictionary<int, string> cache)
         {
             string name;
             if (!cache.TryGetValue(pid, out name))
             {
                 name = "";
-                try { name = Process.GetProcessById(pid).ProcessName; }
+                try
+                {
+                    using (Process process = Process.GetProcessById(pid)) name = process.ProcessName;
+                }
                 catch { }
                 if (name.Length > 0) cache[pid] = name;
             }

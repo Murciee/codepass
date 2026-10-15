@@ -10,8 +10,9 @@ namespace Codepass
         const string UiXaml = @"
 <Grid xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
       xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+      xmlns:local='clr-namespace:Codepass;assembly=codepass'
       xmlns:sys='clr-namespace:System;assembly=mscorlib'
-      Background='Transparent'>
+      Background='#F3F3F3'>
   <Grid.Resources>
     <sys:Double x:Key='SettingsInputWidth'>180</sys:Double>
     <sys:Double x:Key='SettingsGroupInputWidth'>284</sys:Double>
@@ -1036,13 +1037,6 @@ namespace Codepass
 
   </Grid.Resources>
 
-  <!-- 投影层: 只画阴影, 不含任何内容 —— 内容层不套 Effect, 文字才不会被整体栅格化变糊 -->
-  <Border x:Name='shellShadow' Margin='6' CornerRadius='8' Background='#F3F3F3' IsHitTestVisible='False'>
-    <Border.Effect>
-      <DropShadowEffect BlurRadius='20' ShadowDepth='2' Opacity='0.12' Color='#1A1A1A'/>
-    </Border.Effect>
-  </Border>
-
   <!-- 圆角外壳 (窗口无边框, 外层留白放阴影) -->
   <Border x:Name='shell' Margin='6' CornerRadius='8' Background='#F3F3F3'
           BorderBrush='#0F000000' BorderThickness='1'>
@@ -1767,9 +1761,30 @@ namespace Codepass
 
               <Border Grid.Row='4' BorderBrush='#0F000000' BorderThickness='0,1,0,0'>
                 <Grid>
-                  <ScrollViewer x:Name='historyScroll' VerticalScrollBarVisibility='Auto' Margin='0,4,0,0'>
-                    <StackPanel x:Name='listHost'/>
-                  </ScrollViewer>
+                  <local:HistoryListBox x:Name='listHost' Margin='0,4,0,0' BorderThickness='0' Background='Transparent'
+                           ScrollViewer.VerticalScrollBarVisibility='Auto' ScrollViewer.HorizontalScrollBarVisibility='Disabled'
+                           ScrollViewer.CanContentScroll='True' VirtualizingPanel.IsVirtualizing='True'
+                           VirtualizingPanel.VirtualizationMode='Recycling' HorizontalContentAlignment='Stretch'
+                           SelectionMode='Single'>
+                    <ListBox.ItemsPanel>
+                      <ItemsPanelTemplate><VirtualizingStackPanel/></ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemContainerStyle>
+                      <Style TargetType='ListBoxItem'>
+                        <Setter Property='Padding' Value='0'/>
+                        <Setter Property='Margin' Value='0'/>
+                        <Setter Property='BorderThickness' Value='0'/>
+                        <Setter Property='Background' Value='Transparent'/>
+                        <Setter Property='HorizontalContentAlignment' Value='Stretch'/>
+                        <Setter Property='Focusable' Value='False'/>
+                      </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <local:HistoryRowControl Owner='{Binding RelativeSource={RelativeSource AncestorType=ListBox}, Path=Tag}' Item='{Binding}'/>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </local:HistoryListBox>
                   <TextBlock x:Name='lblHistoryEmpty' Style='{StaticResource Hint}' HorizontalAlignment='Center'
                              VerticalAlignment='Center' Text='暂无短信验证码记录' IsHitTestVisible='False' Visibility='Collapsed'/>
                 </Grid>

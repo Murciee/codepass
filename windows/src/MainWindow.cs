@@ -53,7 +53,7 @@ namespace Codepass
         bool warnedEmailAuthUndecryptable;
         Button btnTestPc, btnTestNtfy, btnLock;
         TextBlock lblPcStatus;
-        StackPanel listHost;
+        ListBox listHost;
         TextBlock lblCount, lblHistoryEmpty;
         TextBox txtHistorySearch;
         TextBox txtHistoryRetention;
@@ -88,6 +88,7 @@ namespace Codepass
          bool settingsRecoveryRequired;
 
          Border selectedRow;
+         HistoryRowControl selectedHistoryRow;
          bool allowClose = false;
          bool closeCompleted;
          Window historyRawWindow, diagnosticsWindow;
@@ -98,6 +99,14 @@ namespace Codepass
         static readonly Brush FgFaint  = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : MakeBrush(0x61, 0x61, 0x61);
         static readonly Brush RowHover = SystemParameters.HighContrast ? SystemColors.ControlBrush : MakeBrush(0xF5, 0xF5, 0xF5);
         static readonly Brush RowSel   = SystemParameters.HighContrast ? SystemColors.ControlBrush : MakeBrush(0xE9, 0xE9, 0xE9);
+        internal static Brush BodyBrush { get { return FgBody; } }
+        internal static Brush AccentBrush { get { return AccentTx; } }
+        internal static Brush FaintBrush { get { return FgFaint; } }
+        internal static Brush RowHoverBrush { get { return RowHover; } }
+        internal static Brush RowSelectedBrush { get { return RowSel; } }
+        internal Config Configuration { get { return cfg; } }
+        internal HistoryRowControl SelectedHistoryRow { get { return selectedHistoryRow; } }
+        internal ScrollViewer HistoryScroll { get { EnsureHistoryScroll(); return historyScroll; } }
 
         static Brush MakeBrush(byte r, byte g, byte b)
         {
@@ -117,9 +126,9 @@ namespace Codepass
 
              Title = "codepass";
             WindowStyle = WindowStyle.None;
-             AllowsTransparency = true;
+             AllowsTransparency = false;
                 ResizeMode = ResizeMode.CanResize;
-             Background = Brushes.Transparent;
+             Background = MakeBrush(0xF3, 0xF3, 0xF3);
               MinWidth = Math.Min(640, Math.Max(360, SystemParameters.WorkArea.Width - 24));
              MinHeight = Math.Min(460, Math.Max(300, SystemParameters.WorkArea.Height - 24));
              ApplyConfiguredWindowSize();
@@ -129,7 +138,9 @@ namespace Codepass
              chrome.CornerRadius = new CornerRadius(8);
              chrome.GlassFrameThickness = new Thickness(0);
              WindowChrome.SetWindowChrome(this, chrome);
-             SizeChanged += delegate { ScheduleWindowSizeSave(); };
+             SourceInitialized += delegate { WindowShape.Apply(this); };
+             SizeChanged += delegate { ScheduleWindowSizeSave(); WindowShape.Apply(this); };
+             StateChanged += delegate { WindowShape.Apply(this); };
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI");
             FontSize = 13.5;
@@ -197,7 +208,8 @@ namespace Codepass
              lblPcStatus   = Find<TextBlock>(root, "lblPcStatus");
              btnTestNtfy   = Find<Button>(root, "btnTestNtfy");
              btnLock       = Find<Button>(root, "btnLock");
-             listHost      = Find<StackPanel>(root, "listHost");
+             listHost      = Find<ListBox>(root, "listHost");
+             if (listHost != null) listHost.Tag = this;
              lblCount      = Find<TextBlock>(root, "lblCount");
              lblHistoryEmpty = Find<TextBlock>(root, "lblHistoryEmpty");
              tabSmsHistory = Find<Button>(root, "tabSmsHistory");
@@ -265,7 +277,7 @@ namespace Codepass
               InitializeUsability(root);
               InitializeResponsiveForms(pageSet);
               settingsScroll.SizeChanged += delegate { UpdateResponsiveForms(); };
-              Loaded += delegate { UpdateResponsiveForms(); };
+              Loaded += delegate { UpdateResponsiveForms(); EnsureHistoryScroll(); if (historyDirty && activeSection == "history") RefreshHistory(); };
              if (btnLock != null) btnLock.Click += delegate { LockWindow(); };
 
             // 顶栏拖动 + 窗口按钮
