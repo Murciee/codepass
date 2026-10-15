@@ -240,8 +240,13 @@ namespace Codepass
             {
                 if (cfg != null && History.PruneExpired(cfg.HistoryRetentionMinutes, DateTime.UtcNow) > 0 && mainWindow != null)
                 {
-                    if (mainWindow.Dispatcher.CheckAccess()) mainWindow.RefreshHistory();
-                    else mainWindow.Dispatcher.BeginInvoke(new Action(delegate { mainWindow.RefreshHistory(); }));
+                    Action refresh = delegate
+                    {
+                        if (!mainWindow.IsVisible) mainWindow.MarkHistoryDirty();
+                        else mainWindow.RefreshHistory();
+                    };
+                    if (mainWindow.Dispatcher.CheckAccess()) refresh();
+                    else mainWindow.Dispatcher.BeginInvoke(refresh);
                 }
             }
             catch (IOException)

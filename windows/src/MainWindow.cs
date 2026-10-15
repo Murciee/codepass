@@ -567,8 +567,21 @@ namespace Codepass
             if (MessageBox.Show(this, "确定清空全部记录？", "确认",
                    MessageBoxButton.OKCancel, MessageBoxImage.Question) == MessageBoxResult.OK)
             {
-                try { History.Clear(); RefreshHistory(); }
-                catch (IOException) { ShowToast(History.LastSaveError); }
+                try
+                {
+                    History.Clear();
+                    if (IsVisible) RefreshHistory();
+                    else
+                    {
+                        MarkHistoryDirty();
+                        UpdateReceiveSummary();
+                    }
+                }
+                catch (IOException)
+                {
+                    if (IsVisible) ShowToast(History.LastSaveError);
+                    else Log.Write("clear history from tray failed: " + (History.LastSaveError ?? "storage error"));
+                }
             }
         }
 
@@ -594,11 +607,24 @@ namespace Codepass
              {
                  e.Cancel = true;
                  if (cfg.ShouldAutoLock) LockWindow();
+                 ReleaseHiddenResources();
                  ShowInTaskbar = false;
                  Hide();
                  return;
               }
               base.OnClosing(e);
+          }
+
+          /// <summary>关闭到托盘时释放可重建的页面资源，但保留窗口和设置草稿。</summary>
+          void ReleaseHiddenResources()
+          {
+              ReleaseHistoryRows();
+              if (historyRawWindow != null) historyRawWindow.Close();
+              if (diagnosticsWindow != null) diagnosticsWindow.Close();
+              HideToast();
+              if (historyRefreshTimer != null) { historyRefreshTimer.Stop(); historyRefreshTimer = null; }
+              if (windowSizeTimer != null) { windowSizeTimer.Stop(); windowSizeTimer = null; }
+              if (toastTimer != null) { toastTimer.Stop(); toastTimer = null; }
           }
 
           void ScheduleWindowSizeSave()
@@ -642,6 +668,7 @@ namespace Codepass
               closeCompleted = true;
               if (historyRefreshTimer != null) historyRefreshTimer.Stop();
               if (windowSizeTimer != null) windowSizeTimer.Stop();
+              if (toastTimer != null) toastTimer.Stop();
               base.OnClosed(e);
           }
       }

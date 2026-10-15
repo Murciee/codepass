@@ -71,6 +71,22 @@ namespace Codepass
             if (news != null && offset <= 1) news.Visibility = Visibility.Collapsed;
         }
 
+        /// <summary>窗口隐藏时释放历史页动态控件；记录数据保留，下次显示时完整重建。</summary>
+        internal void ReleaseHistoryRows()
+        {
+            CloseHistoryActions();
+            if (listHost != null) listHost.Children.Clear();
+            selectedRow = null;
+            historyDirty = true;
+            searchChanged = false;
+            if (historyRefreshTimer != null) historyRefreshTimer.Stop();
+        }
+
+        internal void MarkHistoryDirty()
+        {
+            historyDirty = true;
+        }
+
         Border BuildRow(HistoryItem it)
         {
             Grid g = new Grid();

@@ -248,11 +248,37 @@ try{[void](Call $passwordType 'Confirm' $passwordDialog @())}finally{[IO.File]::
 Assert 'password:failed-write-preserves-lock' ($cfg.LockHash -eq $oldHash -and $passwordType.GetField('error',$flags).GetValue($passwordDialog).Text.Length -gt 0)
 $passwordDialog.Close()
 $list=$content.FindName('listHost');$firstRow=$list.Children[0]
-$window.Hide()
+$historyTimerBeforeHide=$windowType.GetField('historyRefreshTimer',$flags).GetValue($window)
+$windowTimerBeforeHide=$windowType.GetField('windowSizeTimer',$flags).GetValue($window)
+$toastTimerBeforeHide=$windowType.GetField('toastTimer',$flags).GetValue($window)
+$contentBeforeHide=$window.Content
+$emailAccountBeforeHide=$content.FindName('txtEmailAccount')
+$handleBeforeHide=(New-Object Windows.Interop.WindowInteropHelper($window)).Handle
+[void](Call $windowType 'Close' $window @())
+$historyTimerAfterHide=$windowType.GetField('historyRefreshTimer',$flags).GetValue($window)
+$windowTimerAfterHide=$windowType.GetField('windowSizeTimer',$flags).GetValue($window)
+$toastTimerAfterHide=$windowType.GetField('toastTimer',$flags).GetValue($window)
+Assert 'history:hidden-window-is-not-visible' (-not $window.IsVisible -and -not $window.ShowInTaskbar)
+Assert 'history:hidden-keeps-content-tree' ([object]::ReferenceEquals($contentBeforeHide,$window.Content) -and [object]::ReferenceEquals($emailAccountBeforeHide,$content.FindName('txtEmailAccount')))
+Assert 'history:hidden-releases-dynamic-rows' ($list.Children.Count -eq 0 -and $null -eq $firstRow.Parent)
+Assert 'history:hidden-marks-list-dirty' ($windowType.GetField('historyDirty',$flags).GetValue($window))
+$historyTimerStopped=$null -eq $historyTimerBeforeHide -or -not $historyTimerBeforeHide.IsEnabled
+$windowTimerStopped=$null -eq $windowTimerBeforeHide -or -not $windowTimerBeforeHide.IsEnabled
+$toastTimerStopped=$null -eq $toastTimerBeforeHide -or -not $toastTimerBeforeHide.IsEnabled
+Assert 'history:hidden-stops-page-timers' ($historyTimerStopped -and $windowTimerStopped -and $toastTimerStopped -and $null -eq $historyTimerAfterHide -and $null -eq $windowTimerAfterHide -and $null -eq $toastTimerAfterHide)
+Assert 'history:hidden-preserves-window-handle' ((New-Object Windows.Interop.WindowInteropHelper($window)).Handle -eq $handleBeforeHide)
 [void](Call $windowType 'OnNewRecord' $window @((Call $history 'Snapshot' $null @())[0]))
-Assert 'history:hidden-does-not-rebuild' ([object]::ReferenceEquals($firstRow,$list.Children[0]))
+Assert 'history:hidden-new-record-does-not-rebuild' ($list.Children.Count -eq 0)
 Assert 'history:latest-action-present' ($null -ne $content.FindName('btnCopyLatest'))
 Assert 'layout:advanced-default-collapsed' (-not $content.FindName('emailAdvanced').IsExpanded)
+[void](Call $windowType 'SelectSection' $window @('general'))
+[void](Call $windowType 'ShowFromTray' $window @())
+Pump
+Assert 'history:show-from-tray-restores-window' ($window.IsVisible -and $window.ShowInTaskbar -and $window.WindowState -eq [Windows.WindowState]::Normal)
+Assert 'history:show-from-tray-keeps-handle' ((New-Object Windows.Interop.WindowInteropHelper($window)).Handle -eq $handleBeforeHide)
+Assert 'history:non-history-page-defers-rebuild' ($list.Children.Count -eq 0 -and $windowType.GetField('historyDirty',$flags).GetValue($window))
+[void](Call $windowType 'SelectSection' $window @('history'))
+Assert 'history:show-from-tray-rebuilds-list' ($list.Children.Count -gt 0 -and $windowType.GetField('historyDirty',$flags).GetValue($window) -eq $false)
 $field=$windowType.GetField('fldEmailAuth',$flags).GetValue($window)
 $secret=$field.GetType();$field.Text='synthetic-auth'
 $version=$windowType.GetField('emailDraftVersion',$flags).GetValue($window)

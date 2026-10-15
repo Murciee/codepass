@@ -39,7 +39,11 @@ namespace Codepass
                 if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
                 { SelectSection("history"); txtHistorySearch.Focus(); txtHistorySearch.SelectAll(); e.Handled = true; }
             };
-            IsVisibleChanged += delegate { if (!IsVisible) CloseHistoryActions(); else if (historyDirty) RefreshHistory(); };
+            IsVisibleChanged += delegate
+            {
+                if (!IsVisible) ReleaseHiddenResources();
+                else if (historyDirty && activeSection == "history") RefreshHistory();
+            };
             foreach (TextBox box in new TextBox[] { txtEmailServer, txtEmailAccount })
                 box.TextChanged += delegate { InvalidateEmailTest(); };
             fldEmailAuth.Changed += InvalidateEmailTest;
