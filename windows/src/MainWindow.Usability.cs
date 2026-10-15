@@ -123,7 +123,14 @@ namespace Codepass
                     if (ntfy) ntfyTestCancel = null; else pcTestCancel = null;
                     if (cancel.IsCancellationRequested) result = new OperationResult(OperationState.Cancelled, "测试已取消");
                     cancel.Dispose(); SetTestButton(button, true, "测试连通性");
-                    if (CanShowTestResult(version, networkDraftVersion)) SettingsFeedback(result.Message, result.State == OperationState.Failed);
+                    if (CanShowTestResult(version, networkDraftVersion))
+                    {
+                        // 本机接收服务没在监听时要点出这一层：否则只剩笼统的“连接失败”，看不出是程序自己没绑上。
+                        string message = result.Message;
+                        if (!ntfy && result.State == OperationState.Failed && RuntimeStatus.Http == ConnectionState.Retrying)
+                            message += "（本机接收服务" + RuntimeStatus.ConnectionText(RuntimeStatus.Http) + "；监听地址可能尚未就绪，程序会自动重试）";
+                        SettingsFeedback(message, result.State == OperationState.Failed);
+                    }
                 })); } catch { cancel.Dispose(); }
             });
         }
@@ -153,6 +160,22 @@ namespace Codepass
                 + " · " + new DateTime(receipt.ReceivedUtcTicks, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm:ss") + " · " + RuntimeStatus.Clipboard;
             Button copy = Find<Button>(root, "btnCopyLatest"); if (copy != null) copy.IsEnabled = receipt != null;
         }
+        /// <summary>电脑接收服务状态：绑定失败会自动重试，状态和实际监听地址都要显示出来，不能只写在日志里。</summary>
+        void UpdatePcReceiverStatus()
+        {
+            if (lblPcStatus == null) return;
+            ConnectionState state = RuntimeStatus.Http;
+            string bound = Program.Http == null || Program.Http.BoundEndpoint == null ? "" : Program.Http.BoundEndpoint;
+            // 配置了局域网地址和令牌却只监听本机（地址非法时会被降级）时服务其实不可达，不能显示成“正常”。
+            bool unreachable = state == ConnectionState.Ready && bound.StartsWith("127.0.0.1", StringComparison.Ordinal)
+                && cfg.Token.Length > 0 && cfg.PcIp.Trim().Length > 0;
+            lblPcStatus.Text = unreachable ? "接收服务：仅本机监听，手机无法连接"
+                : "接收服务：" + RuntimeStatus.ConnectionText(state)
+                    + (state == ConnectionState.Ready && bound.Length > 0 ? " · " + bound : "");
+            if (unreachable || state == ConnectionState.Retrying || state == ConnectionState.Failed) lblPcStatus.Foreground = Brushes.Firebrick;
+            else lblPcStatus.ClearValue(TextBlock.ForegroundProperty);
+        }
+
         void UpdateCompactShell()
         {
             ColumnDefinition nav = ((FrameworkElement)Content).FindName("navWidth") as ColumnDefinition;

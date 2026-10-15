@@ -151,6 +151,7 @@ namespace Codepass
                  : !cfg.QqPopupEnabled ? "联动已关闭" : "监测中 · 最近提醒 " + QqPopupWatcher.LastSignalText;
               if (chkQqPopup != null) chkQqPopup.IsEnabled = Program.EmailConfigured();
               UpdateReceiveSummary();
+              UpdatePcReceiverStatus();
          }
 
          void TestEmailConnection()

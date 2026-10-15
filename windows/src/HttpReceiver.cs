@@ -9,6 +9,7 @@ using System.Threading;
 namespace Codepass
 {
     // TcpListener 手工解析，免管理员/urlacl；监听器和活动连接均由本模块启停。
+    // 绑定失败只退避重试，不作废整个会话：登录自启时虚拟网卡地址（pc_ip）常常晚于本进程就绪。
     sealed class HttpReceiver
     {
         readonly Func<Config> configuration;
@@ -16,12 +17,17 @@ namespace Codepass
         readonly Action statusChanged;
         readonly object gate = new object();
         readonly HashSet<TcpClient> clients = new HashSet<TcpClient>();
+        readonly ManualResetEvent stopSignal = new ManualResetEvent(false);
         TcpListener listener;
         Thread thread;
         volatile bool running, lanBound;
+        // 最近一次成功绑定的端点文本：界面要能看出实际监听在哪（例如地址非法时被降级到本机）。
+        internal volatile string BoundEndpoint;
         const int MaxClients = 32;
         static readonly byte[] CrlfCrlf = new byte[] { 13, 10, 13, 10 };
         static readonly byte[] LfLf = new byte[] { 10, 10 };
+        // 前几次快（虚拟网卡地址通常几秒内就绪），之后拉长到 30 秒一次，避免长期失败时刷满日志。
+        static readonly int[] RetryDelays = new int[] { 1000, 2000, 3000, 5000, 8000, 13000, 20000, 30000 };
 
         internal HttpReceiver(Func<Config> configuration, IncomingDelivery delivery, Action statusChanged)
         { this.configuration = configuration; this.delivery = delivery; this.statusChanged = statusChanged; }
@@ -31,7 +37,8 @@ namespace Codepass
             lock (gate)
             {
                 if (thread != null && thread.IsAlive) return;
-                running = true; thread = new Thread(Loop); thread.IsBackground = true; thread.Name = "http"; thread.Start();
+                stopSignal.Reset(); running = true;
+                thread = new Thread(Loop); thread.IsBackground = true; thread.Name = "http"; thread.Start();
             }
         }
 
@@ -40,53 +47,85 @@ namespace Codepass
             Thread worker;
             lock (gate)
             {
-                running = false; worker = thread;
+                running = false; worker = thread; BoundEndpoint = "";
+                stopSignal.Set(); // 让正在等待下一次重试的线程立刻醒来，退出不用等满一个间隔。
                 try { if (listener != null) listener.Stop(); } catch { }
                 foreach (TcpClient client in clients) { try { client.Close(); } catch { } }
             }
             try { if (worker != null && worker.IsAlive && worker != Thread.CurrentThread) worker.Join(1500); } catch { }
         }
 
+        /// <summary>第 attempt 次失败后到下一次尝试的等待时间（attempt 从 0 起）。</summary>
+        internal static int RetryDelayMs(int attempt)
+        {
+            return RetryDelays[attempt < 1 ? 0 : Math.Min(attempt, RetryDelays.Length - 1)];
+        }
+
         void Loop()
         {
-            RuntimeStatus.Http = ConnectionState.Connecting;
-            TcpListener active = null;
-            try
+            RuntimeStatus.Http = ConnectionState.Connecting; RaiseStatus();
+            int failures = 0;
+            while (running)
             {
-                Config cfg = configuration();
-                IPAddress address = ResolveListenAddress(cfg); lanBound = !IPAddress.IsLoopback(address);
-                lock (gate)
+                TcpListener active = null;
+                try
+                {
+                    // 每次尝试都重新解析地址：配置里的网卡地址后出现时，下一次重试就能绑上。
+                    Config cfg = configuration();
+                    IPAddress address = ResolveListenAddress(cfg);
+                    lock (gate)
+                    {
+                        if (!running) return;
+                        active = new TcpListener(address, cfg.Port); listener = active; active.Start();
+                    }
+                    lanBound = !IPAddress.IsLoopback(address);
+                    BoundEndpoint = address + ":" + cfg.Port;
+                    Log.Write("HTTP listening on " + address + ":" + cfg.Port + " token=" + (cfg.Token.Length == 0 ? "off" : "on")
+                        + (failures > 0 ? " (bind retried " + failures + "x)" : ""));
+                    failures = 0;
+                    RuntimeStatus.Http = ConnectionState.Ready; RaiseStatus();
+                    Accept(active);
+                }
+                catch (Exception e)
                 {
                     if (!running) return;
-                    active = new TcpListener(address, cfg.Port); listener = active; active.Start();
+                    RuntimeStatus.Http = ConnectionState.Retrying; RaiseStatus();
+                    // 首次必写，长期失败每 10 次记一条，避免无休止刷日志。
+                    if (failures == 0 || failures % 10 == 0)
+                        Log.Write("HTTP listen FAILED: " + e.Message + "  (监听地址不可用或端口被占用? 将自动重试)");
                 }
-                RuntimeStatus.Http = ConnectionState.Ready; statusChanged();
-                Log.Write("HTTP listening on " + address + ":" + cfg.Port + " token=" + (cfg.Token.Length == 0 ? "off" : "on"));
-                while (running)
+                finally
                 {
-                    try
-                    {
-                        TcpClient client = active.AcceptTcpClient();
-                        lock (gate)
-                        {
-                            if (!running || clients.Count >= MaxClients) { client.Close(); continue; }
-                            clients.Add(client);
-                        }
-                        ThreadPool.QueueUserWorkItem(HandleClient, client);
-                    }
-                    catch (Exception e) { if (running) { Log.Write("accept error: " + e.Message); Thread.Sleep(300); } }
+                    try { if (active != null) active.Stop(); } catch { }
+                    lock (gate) { if (listener == active) listener = null; }
                 }
-            }
-            catch (Exception e)
-            {
-                if (running) { Log.Write("HTTP listen FAILED: " + e.Message + "  (端口被占用?)"); RuntimeStatus.Http = ConnectionState.Failed; statusChanged(); }
-            }
-            finally
-            {
-                try { if (active != null) active.Stop(); } catch { }
-                lock (gate) { if (listener == active) listener = null; }
+                if (!running) break;
+                if (stopSignal.WaitOne(RetryDelayMs(failures))) break; // 只有停止信号才结束重试。
+                failures++;
             }
         }
+
+        void Accept(TcpListener active)
+        {
+            while (running)
+            {
+                try
+                {
+                    TcpClient client = active.AcceptTcpClient();
+                    lock (gate)
+                    {
+                        if (!running || clients.Count >= MaxClients) { client.Close(); continue; }
+                        clients.Add(client);
+                    }
+                    ThreadPool.QueueUserWorkItem(HandleClient, client);
+                }
+                catch (Exception e) { if (running) { Log.Write("accept error: " + e.Message); stopSignal.WaitOne(300); } }
+            }
+        }
+
+        /// <summary>状态回调属于界面提示：回调自身出错不能被当成绑定失败而触发重试。</summary>
+        void RaiseStatus()
+        { try { if (statusChanged != null) statusChanged(); } catch { } }
 
         static IPAddress ResolveListenAddress(Config cfg)
         {

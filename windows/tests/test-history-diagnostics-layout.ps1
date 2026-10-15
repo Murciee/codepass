@@ -249,7 +249,7 @@ foreach($section in @('general','security')) {
     [void](Call $windowType 'SelectSection' $window @($section))
     Layout 780 760
     Assert ('layout:no-horizontal-scroll-'+$section) ($content.FindName('settingsScroll').ExtentWidth -le $content.FindName('settingsScroll').ViewportWidth+1)
-    if($section -eq 'general') { CheckControls 'sms-narrow' @('txtPcIp','btnDetect','btnTestPc','tokenHost','ntfyTokenHost','txtNtfyServer','btnTestNtfy','txtFilterKeywords','txtFilterRegex','btnAcceptKeywordAdd','btnAcceptKeywordDefault','chkStartup','btnGen') }
+    if($section -eq 'general') { CheckControls 'sms-narrow' @('txtPcIp','btnDetect','btnTestPc','lblPcStatus','tokenHost','ntfyTokenHost','txtNtfyServer','btnTestNtfy','txtFilterKeywords','txtFilterRegex','btnAcceptKeywordAdd','btnAcceptKeywordDefault','chkStartup','btnGen') }
     else {
         Assert 'layout:lock-action-hidden-until-enabled' ($content.FindName('btnLock').Visibility -eq [Windows.Visibility]::Collapsed)
         # The lock screen uses the same inline eye: one click reveals, another restores the mask.

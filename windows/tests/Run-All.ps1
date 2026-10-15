@@ -38,7 +38,7 @@ try {
     }
     Write-Host ('BUILD_ID=' + $meta.buildId)
     Write-Host ('SHA256=' + $hash)
-    foreach ($suite in @('test-email-security-code-history.ps1','test-email-switch-sms-limit.ps1','test-privacy-quality.ps1','test-history-diagnostics-layout.ps1','test-startup-retention.ps1','test-delivery-usability.ps1','test-updater.ps1')) {
+    foreach ($suite in @('test-email-security-code-history.ps1','test-email-switch-sms-limit.ps1','test-privacy-quality.ps1','test-history-diagnostics-layout.ps1','test-startup-retention.ps1','test-receiver-binding.ps1','test-delivery-usability.ps1','test-updater.ps1')) {
         $fixture = Join-Path $run ($suite.Replace('.ps1','') + '-fixtures')
         $ownedFixtures.Add($fixture)
         $suiteArguments = @('-ExePath', $ExePath, '-FixtureDirectory', $fixture)

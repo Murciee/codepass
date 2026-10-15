@@ -52,6 +52,7 @@ namespace Codepass
         CancellationTokenSource emailTestCancel;
         bool warnedEmailAuthUndecryptable;
         Button btnTestPc, btnTestNtfy, btnLock;
+        TextBlock lblPcStatus;
         StackPanel listHost;
         TextBlock lblCount, lblHistoryEmpty;
         TextBox txtHistorySearch;
@@ -193,6 +194,7 @@ namespace Codepass
               cmbPrivacy    = Find<ComboBox>(root, "cmbPrivacy");
               cmbEmailPrivacy = Find<ComboBox>(root, "cmbEmailPrivacy");
              btnTestPc     = Find<Button>(root, "btnTestPc");
+             lblPcStatus   = Find<TextBlock>(root, "lblPcStatus");
              btnTestNtfy   = Find<Button>(root, "btnTestNtfy");
              btnLock       = Find<Button>(root, "btnLock");
              listHost      = Find<StackPanel>(root, "listHost");

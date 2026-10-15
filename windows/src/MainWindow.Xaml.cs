@@ -1164,6 +1164,7 @@ namespace Codepass
                           <Button x:Name='btnDetect' Style='{StaticResource FieldLinkBtn}' Content='检测本机地址' AutomationProperties.Name='检测本机地址'/>
                           <Button x:Name='btnTestPc' Style='{StaticResource FieldLinkBtn}' Content='测试连通性' Margin='14,0,0,0'/>
                         </StackPanel>
+                        <TextBlock x:Name='lblPcStatus' Style='{StaticResource SettingsCardDescription}' Margin='0,4,0,0'/>
                       </StackPanel>
                       <TextBox x:Name='txtPcIp' Grid.Row='0' Grid.Column='1' Style='{StaticResource Input}' Width='132' HorizontalAlignment='Right'/>
                     </Grid>
