@@ -1,9 +1,9 @@
 ﻿{
-    "version":  "1.0.7",
-    "buildId":  "1.0.7+20261013044059.41c9249df3f4.dirty.srcfa7460da15ba",
-    "builtUtc":  "2026-10-13T04:40:59Z",
-    "commit":  "41c9249df3f4",
-    "dirty":  true,
-    "sourceSha256":  "fa7460da15bafce297fde06aa1cac4d6e77fbf4a594ba827e47ade6465e1d531",
-    "exeSha256":  "27C56C6925C0792A7F2140B0BFD31632BF77A04EC06CA4EF292E0C67E559A3D6"
+    "version":  "1.0.9",
+    "buildId":  "1.0.9+20261015031642.f0231a6ee6f1.src7b8a0043276c",
+    "builtUtc":  "2026-10-15T03:16:42Z",
+    "commit":  "f0231a6ee6f1",
+    "dirty":  false,
+    "sourceSha256":  "7b8a0043276c11db105e078dee6d9cd3eab8e7436dbf2a28206af77d6d50b7e7",
+    "exeSha256":  "97A034B23347BC278B73AD6187CE891B7342F5D0D4EBC897AC15A78D37C75EAF"
 }
