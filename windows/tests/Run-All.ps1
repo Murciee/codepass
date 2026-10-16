@@ -43,8 +43,15 @@ try {
         $ownedFixtures.Add($fixture)
         $suiteArguments = @('-ExePath', $ExePath, '-FixtureDirectory', $fixture)
         if ($suite -eq 'test-email-security-code-history.ps1' -or $suite -eq 'test-history-diagnostics-layout.ps1') { $suiteArguments += @('-EvidenceDirectory', (Join-Path $run 'evidence')) }
-        $output = @(& $powerShell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot $suite) @suiteArguments 2>&1)
-        $exitCode = $LASTEXITCODE
+        # 子进程写 stderr 时 PowerShell 5.1 会把它包成 NativeCommandError，在 EAP=Stop 下会直接中止整个
+        # 运行（表现为 ERROR=... 且 pass=0）。这里临时放宽，让套件失败按它自己的 TOTAL 与退出码记录，
+        # 其余套件继续跑完。
+        $savedPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $output = @(& $powerShell -NoProfile -STA -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot $suite) @suiteArguments 2>&1)
+            $exitCode = $LASTEXITCODE
+        } finally { $ErrorActionPreference = $savedPreference }
         $output | Set-Content -LiteralPath (Join-Path $run ($suite + '.log')) -Encoding UTF8
         $totals = @($output | ForEach-Object { [regex]::Match([string]$_, '^TOTAL pass=(\d+) fail=(\d+)$') } | Where-Object { $_.Success })
         $suitePass = 0; $suiteFail = 0
@@ -72,8 +79,11 @@ try {
         try {
             if ((Get-Item -LiteralPath $fixture).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing linked fixture' }
             if (Get-ChildItem -LiteralPath $fixture -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Refusing contained link' }
-            $bin = (New-Object -ComObject Shell.Application).NameSpace(10)
-            $bin.MoveHere($fixture,1044)
+            # 回收放到独立的 STA 子进程里执行：在长驻的 runner 进程里，Shell.Application.MoveHere 会在
+            # 最后一个 fixture 上阻塞，VisualBasic 回收接口则报 "系统调用级别不正确"；同样的调用在
+            # 新进程里稳定成功。语义不变（仍然移到回收站），返回后确认目录已消失。
+            $recycleCommand = "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('" + ($fixture.Replace("'", "''")) + "', [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs, [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)"
+            & $powerShell -NoProfile -STA -ExecutionPolicy Bypass -Command $recycleCommand 2>&1 | Out-Null
             if (Test-Path -LiteralPath $fixture) { throw 'Recycling not confirmed' }
         } catch { $fail++; Write-Host ('CLEANUP_ERROR=' + $_.Exception.Message) }
     }
