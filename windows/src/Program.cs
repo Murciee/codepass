@@ -49,6 +49,7 @@ namespace Codepass
         static DispatcherTimer historyRetentionTimer;
         static int retentionQueued;
         static volatile bool running = true;
+        static string[] launchArgs;   // Main 收到的命令行：判断这次是不是交接出来的进程
         internal static bool StartupSyncFailed { get; private set; }
         internal static bool Running { get { return running; } }
 
@@ -123,6 +124,7 @@ namespace Codepass
         static void Main(string[] args)
         {
             if (Updater.TryRunInstaller(args)) return;
+            launchArgs = args;
             bool silent = IsSilentStartup(args), createdNew;
             // 重启应用：先等旧实例退出，再进入单实例互斥（在互斥之前，等待期间不占用它）。
             WaitForRestartTarget(args);
@@ -170,6 +172,7 @@ namespace Codepass
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
                 Clipboard.Dispose(); return;
             }
+            Http.PortConflict = PortConflictReported;
             BuildTray(); Http.Start(); if (cfg.NtfyTopic.Length > 0) Ntfy.Start(); RefreshEmailWatchers();
             Updater.CleanupCompletedUpdate(args);
             // 静默启动不创建主窗口，空闲回收必须在这里启动；窗口显示后会接管可见性。
@@ -341,6 +344,60 @@ namespace Codepass
                     System.Windows.Forms.ToolTipIcon.Warning);
             }
             catch { }
+        }
+
+        // ---------- 交接自愈：继承下来的僵尸监听 ----------
+
+        // 只有"被旧实例拉起的子进程"才可能继承到旧实例的监听套接字：更新助手用
+        // --updated 拉起新版本，托盘重启用 --restart-wait。
+        internal static bool WasSpawnedForHandover(string[] args)
+        {
+            if (RestartWaitProcessId(args) != 0) return true;
+            return args != null && args.Length == 2 && string.Equals(args[0], "--updated", StringComparison.Ordinal);
+        }
+
+        static bool handoverRelaunched;
+
+        /// <summary>接收器连续几次报"端口被占用"时从接收线程调用：转到界面线程处理。</summary>
+        static void PortConflictReported()
+        {
+            Dispatcher dispatcher = DeliveryDispatcher();
+            if (dispatcher == null) { Log.Write("handover: port conflict before the dispatcher exists; keep retrying"); return; }
+            try { dispatcher.BeginInvoke(new Action(HandoverRelaunch)); }
+            catch (Exception ex) { Log.Write("handover dispatch failed: " + ex.GetType().Name); }
+        }
+
+        /// <summary>
+        /// 旧版本创建的监听套接字是可继承的：更新助手和重启拉起的新实例会把那个句柄一起
+        /// 带过来，于是新实例自己攥着自己要绑的端口，重试永远不会成功——只有由资源管理器
+        /// 拉起的进程不受影响。僵尸句柄在进程内关不掉，但用 ShellExecute 方式重新拉起自己
+        /// （不继承句柄）就能解开；只做一次，且只对交接出来的进程做，普通启动不自我重启。
+        /// </summary>
+        static void HandoverRelaunch()
+        {
+            if (handoverRelaunched) return;
+            handoverRelaunched = true;
+            if (!WasSpawnedForHandover(launchArgs))
+            {
+                Log.Write("handover: port busy but this launch was not a handover; keep retrying");
+                return;
+            }
+            try
+            {
+                ProcessStartInfo start = new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,
+                    mainWindow != null && mainWindow.IsVisible ? "" : "--startup");
+                start.UseShellExecute = true;   // 关键：ShellExecuteEx 创建的进程不继承句柄
+                start.WorkingDirectory = appDir;
+                Process started = Process.Start(start);
+                if (started != null) started.Dispose();
+                Log.Write("handover: inherited port holder detected; relaunching without inheritance");
+            }
+            catch (Exception ex)
+            {
+                Log.Write("handover relaunch failed: " + ex.GetType().Name);
+                return;
+            }
+            if (!QuitApp()) Log.Write("handover: current instance stayed up");
         }
         internal static void RunMainWindow(System.Windows.Application application, MainWindow window, bool silent)
         {

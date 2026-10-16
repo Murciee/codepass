@@ -124,6 +124,12 @@ $visibleArgs=[string](Call $program 'RestartArguments' $null @(4242,[long]638123
 Assert 'restart:arguments-visible' ($visibleArgs -eq '--restart-wait 4242 638123456789012345')
 Assert 'restart:arguments-hidden-stays-silent' ((Call $program 'RestartArguments' $null @(4242,[long]0,$false)) -eq '--restart-wait 4242 0 --startup')
 Assert 'restart:arguments-round-trip' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@($visibleArgs -split ' '))) -eq 4242)
+# Only update and restart handovers can inherit the old instance's listening socket.
+Assert 'handover:update-spawn-detected' (Call $program 'WasSpawnedForHandover' $null @(,[string[]]@('--updated','20261016-1-abcd')))
+Assert 'handover:restart-spawn-detected' (Call $program 'WasSpawnedForHandover' $null @(,[string[]]@('--restart-wait','4242','638000000000000000')))
+Assert 'handover:manual-launch-not-detected' (-not (Call $program 'WasSpawnedForHandover' $null @(,[string[]]@('--startup'))))
+Assert 'handover:plain-launch-not-detected' (-not (Call $program 'WasSpawnedForHandover' $null @(,[string[]]@('--dry'))))
+Assert 'handover:null-args-not-detected' (-not (Call $program 'WasSpawnedForHandover' $null @($null)))
 $helperExe=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $helper=Start-Process -FilePath $helperExe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 2' -PassThru
 Start-Sleep -Milliseconds 300

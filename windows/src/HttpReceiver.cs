@@ -31,6 +31,14 @@ namespace Codepass
         static readonly byte[] LfLf = new byte[] { 10, 10 };
         // 前几次快（虚拟网卡地址通常几秒内就绪），之后拉长到 30 秒一次，避免长期失败时刷满日志。
         static readonly int[] RetryDelays = new int[] { 1000, 2000, 3000, 5000, 8000, 13000, 20000, 30000 };
+        // 端口被占用连续失败这么多次后通知应用层（见 PortConflict 字段）。
+        const int PortConflictAttempts = 3;
+
+        // 端口冲突回调：失败原因是"端口被占用"（而不是地址还没出现）且连续若干次时触发一次。
+        // 被占用可能是自己进程里从旧版本继承下来的僵尸监听（关不掉，只能换进程），
+        // 由 Program 决定是否自愈重启；别的程序占着端口时重启也解决不了，回调里会判断。
+        internal Action PortConflict;
+        int portConflicts;
 
         internal HttpReceiver(Func<Config> configuration, IncomingDelivery delivery, Action statusChanged)
         { this.configuration = configuration; this.delivery = delivery; this.statusChanged = statusChanged; }
@@ -81,6 +89,15 @@ namespace Codepass
             catch { return false; }
         }
 
+        /// <summary>绑定失败是不是"端口被占用"（区别于"监听地址还不存在"）。</summary>
+        internal static bool IsPortConflict(Exception e)
+        {
+            SocketException socketError = e as SocketException;
+            if (socketError == null) return false;
+            return socketError.SocketErrorCode == SocketError.AddressAlreadyInUse
+                || socketError.SocketErrorCode == SocketError.AccessDenied;
+        }
+
         void Loop()
         {
             RuntimeStatus.Http = ConnectionState.Connecting; RaiseStatus();
@@ -102,6 +119,7 @@ namespace Codepass
                     }
                     lanBound = !IPAddress.IsLoopback(address);
                     BoundEndpoint = address + ":" + cfg.Port;
+                    portConflicts = 0;
                     Log.Write("HTTP listening on " + address + ":" + cfg.Port + " token=" + (cfg.Token.Length == 0 ? "off" : "on")
                         + (failures > 0 ? " (bind retried " + failures + "x)" : ""));
                     failures = 0;
@@ -112,6 +130,13 @@ namespace Codepass
                 {
                     if (!running) return;
                     RuntimeStatus.Http = ConnectionState.Retrying; RaiseStatus();
+                    if (IsPortConflict(e))
+                    {
+                        portConflicts++;
+                        if (portConflicts == PortConflictAttempts && PortConflict != null)
+                        { try { PortConflict(); } catch { } }
+                    }
+                    else portConflicts = 0;
                     // 首次必写，长期失败每 10 次记一条，避免无休止刷日志。
                     if (failures == 0 || failures % 10 == 0)
                         Log.Write("HTTP listen FAILED: " + e.Message + "  (监听地址不可用或端口被占用? 将自动重试)");

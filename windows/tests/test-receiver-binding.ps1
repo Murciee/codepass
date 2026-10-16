@@ -13,6 +13,8 @@ public static class ReceiverProbe {
         if (!GetHandleInformation(handle, out flags)) return true; // unknown: assume the worst
         return (flags & 0x1) != 0;
     }
+    public static int ConflictHooks;
+    public static void OnConflict() { System.Threading.Interlocked.Increment(ref ConflictHooks); }
 }
 '@
 $asm=[Reflection.Assembly]::LoadFile([IO.Path]::GetFullPath($ExePath)); $flags=[Reflection.BindingFlags]'Public,NonPublic,Static,Instance'
@@ -58,6 +60,11 @@ function Health([string]$ip,[int]$port,[string]$token){
   $buffer=New-Object byte[] 256; $read=$stream.Read($buffer,0,$buffer.Length)
   return [Text.Encoding]::ASCII.GetString($buffer,0,$read)
  } finally { $client.Close() }
+}
+function Wait-ForConflictHook([int]$timeoutMs){
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ while($clock.ElapsedMilliseconds -lt $timeoutMs){ if([ReceiverProbe]::ConflictHooks -gt 0){return $true}; Start-Sleep -Milliseconds 100 }
+ return $false
 }
 
 # The receiver reads its listen settings through Program.cfg; the test compiles a real CLR
@@ -144,6 +151,29 @@ Start-Sleep -Milliseconds 800
 [void](Call $receiverType 'Stop' $receiver @())
 $probe.WaitForExit()
 Assert 'receiver:child-can-bind-after-stop' ([IO.File]::ReadAllText($probeResult).Trim() -eq 'OK')
+
+# A port held while the app is already running (an inherited listener from a pre-1.1.4 build can
+# be held by our own process, which retrying can never fix) has to be reported to the app layer
+# after a few conflicts so it can relaunch without inheritance. A missing address must NOT look
+# like a port conflict: that case is fixed by waiting for the adapter.
+$conflictDelegate=[System.Delegate]::CreateDelegate([Action],[ReceiverProbe].GetMethod('OnConflict'))
+Assert 'receiver:port-conflict-classified' ((Call $receiverType 'IsPortConflict' $null @(,(New-Object Net.Sockets.SocketException 10048))) -and (Call $receiverType 'IsPortConflict' $null @(,(New-Object Net.Sockets.SocketException 10013))) -and -not (Call $receiverType 'IsPortConflict' $null @(,(New-Object Net.Sockets.SocketException 10049))))
+$conflictPort=NewFreePort
+$conflictBlocker=New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Loopback),$conflictPort
+$conflictBlocker.Start()
+$cfg.PcIp='127.0.0.1'; $cfg.Port=$conflictPort
+[ReceiverProbe]::ConflictHooks=0
+$receiverType.GetField('PortConflict',$flags).SetValue($receiver,$conflictDelegate.PSObject.BaseObject)
+[void](Call $receiverType 'Start' $receiver @())
+Assert 'receiver:port-conflict-hook-fires' (Wait-ForConflictHook 15000)
+[void](Call $receiverType 'Stop' $receiver @())
+$conflictBlocker.Stop()
+$cfg.PcIp='192.0.2.50'
+[ReceiverProbe]::ConflictHooks=0
+[void](Call $receiverType 'Start' $receiver @())
+Assert 'receiver:unavailable-address-no-conflict-hook' (-not (Wait-ForConflictHook 6000))
+[void](Call $receiverType 'Stop' $receiver @())
+$receiverType.GetField('PortConflict',$flags).SetValue($receiver,$null)
 
 # Stopping must not wait out a retry interval: a worker parked on the next retry has to end at once.
 $cfg.PcIp='192.0.2.50'
