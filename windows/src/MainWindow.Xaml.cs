@@ -1077,7 +1077,7 @@ namespace Codepass
           <ColumnDefinition Width='*'/>
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column='0' Background='#F3F3F3' BorderBrush='#0F000000' BorderThickness='0,0,1,0' Padding='8,18'>
+        <Border x:Name='navRail' Grid.Column='0' Background='#F3F3F3' BorderBrush='#0F000000' BorderThickness='0,0,1,0' Padding='8,18'>
           <StackPanel>
             <Button x:Name='navHistory' Style='{StaticResource SideNavBtn}' Content='记录'/>
             <Button x:Name='navGeneral' Style='{StaticResource SideNavBtn}' Content='短信设置'/>

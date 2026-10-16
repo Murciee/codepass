@@ -39,8 +39,11 @@ namespace Codepass
                 if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
                 { SelectSection("history"); txtHistorySearch.Focus(); txtHistorySearch.SelectAll(); e.Handled = true; }
             };
+            MemoryTrim.EnsureStarted();
+            MemoryTrim.SetWindowVisible(IsVisible);
             IsVisibleChanged += delegate
             {
+                MemoryTrim.SetWindowVisible(IsVisible);
                 if (!IsVisible) ReleaseHiddenResources();
                 else if (historyDirty && activeSection == "history") RefreshHistory();
             };

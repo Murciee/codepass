@@ -166,6 +166,9 @@ namespace Codepass
             }
             BuildTray(); Http.Start(); if (cfg.NtfyTopic.Length > 0) Ntfy.Start(); RefreshEmailWatchers();
             Updater.CleanupCompletedUpdate(args);
+            // 静默启动不创建主窗口，空闲回收必须在这里启动；窗口显示后会接管可见性。
+            MemoryTrim.EnsureStarted();
+            MemoryTrim.SetWindowVisible(mainWindow != null && mainWindow.IsVisible);
             Log.Write("started.");
             historyRetentionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             historyRetentionTimer.Tick += delegate

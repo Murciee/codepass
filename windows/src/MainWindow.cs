@@ -143,7 +143,7 @@ namespace Codepass
              chrome.GlassFrameThickness = new Thickness(0);
              WindowChrome.SetWindowChrome(this, chrome);
              windowChrome = chrome;
-             SourceInitialized += delegate { WindowShape.Apply(this); HookCaptionHitTest(); UpdateCaptionButtons(); };
+             SourceInitialized += delegate { WindowShape.Apply(this); WindowShape.ApplyModernFrame(this); WindowShape.ApplyMica(this, Content as Panel); HookCaptionHitTest(); UpdateCaptionButtons(); };
              SizeChanged += delegate { ScheduleWindowSizeSave(); WindowShape.Apply(this); };
              LocationChanged += delegate { ScheduleWindowSizeSave(); };
              StateChanged += delegate { WindowShape.Apply(this); UpdateCaptionButtons(); };

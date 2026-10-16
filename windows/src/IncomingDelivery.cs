@@ -105,6 +105,7 @@ namespace Codepass
             string code, string messageKey, Config identity, Func<bool> canCommit, string mailboxKey = null, long mailUid = 0,
             bool updateLatest = true, DateTime? receivedUtc = null, string transportKey = null)
         {
+            MemoryTrim.PokeActivity();
             lock (Config.SaveGate)
             {
                 if (!running()) throw new IOException("接收正在停止，请稍后重试投递");
