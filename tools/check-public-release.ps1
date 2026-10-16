@@ -262,8 +262,8 @@ $updaterSource = Get-Content -LiteralPath (Join-Path $Root 'windows\src\Updater.
 $androidVersion = [regex]::Match($androidBuild, "versionName\s+'([^']+)'").Groups[1].Value
 $magiskVersion = [regex]::Match($moduleProp, '(?m)^version=([^\r\n]+)').Groups[1].Value
 $windowsVersion = [regex]::Match($updaterSource, 'AppVersion\s*=\s*"([^"]+)"').Groups[1].Value
-if ($windowsVersion -eq '1.1.3' -and $androidVersion -eq '1.0.3' -and $magiskVersion -eq '1.0.3') {
-    Add-Pass 'Windows 1.1.3 release; unchanged compatible phone modules remain at 1.0.3'
+if ($windowsVersion -eq '1.1.4' -and $androidVersion -eq '1.0.3' -and $magiskVersion -eq '1.0.3') {
+    Add-Pass 'Windows 1.1.4 release; unchanged compatible phone modules remain at 1.0.3'
 } elseif ($androidVersion -and $androidVersion -eq $magiskVersion -and $androidVersion -eq $windowsVersion) {
     Add-Pass "all component versions match: $androidVersion"
 } else { Add-Block "version mismatch: Android=[$androidVersion] Magisk=[$magiskVersion] Windows=[$windowsVersion]" }

@@ -47,7 +47,7 @@ Android SMS or email code → Windows → clipboard
 
 ## Downloads
 
-Current Windows version: **v1.1.3**; phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
+Current Windows version: **v1.1.4**; phone modules remain at v1.0.3. [Download the latest release](https://github.com/Murciee/codepass/releases/latest).
 
 | Asset | Purpose |
 | --- | --- |

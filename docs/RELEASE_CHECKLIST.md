@@ -55,7 +55,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-public-release.p
 - [ ] 780 与 1280 宽度检查记录、短信、邮箱、隐私、关于页面；实时状态置顶，输入与按钮不被横向裁切，扩大窗口恢复左右标签。
 - [ ] 未宣传不具备的能力（持久化补发、端到端加密、全平台兼容、正式签名）；
 - [ ] 未要求用户关闭杀毒软件或系统安全功能；
-- [ ] Windows v1.1.3 与发布说明一致；手机端本次沿用兼容的 v1.0.3 已签名附件，不把未重建的 Android 版本伪装成 v1.1.3；后续 Android 版本升级时再增加 `versionCode`。
+- [ ] Windows v1.1.4 与发布说明一致；手机端本次沿用兼容的 v1.0.3 已签名附件，不把未重建的 Android 版本伪装成 v1.1.4；后续 Android 版本升级时再增加 `versionCode`。
 
 ## 六、发布动作
 
