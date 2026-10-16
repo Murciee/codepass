@@ -2,6 +2,19 @@
 param([string]$ExePath,[string]$FixtureDirectory)
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase,System.Xaml
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ReceiverProbe {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetHandleInformation(IntPtr handle, out uint flags);
+    public static bool IsInheritable(IntPtr handle) {
+        uint flags;
+        if (!GetHandleInformation(handle, out flags)) return true; // unknown: assume the worst
+        return (flags & 0x1) != 0;
+    }
+}
+'@
 $asm=[Reflection.Assembly]::LoadFile([IO.Path]::GetFullPath($ExePath)); $flags=[Reflection.BindingFlags]'Public,NonPublic,Static,Instance'
 $cfgType=$asm.GetType('Codepass.Config'); $programType=$asm.GetType('Codepass.Program')
 $receiverType=$asm.GetType('Codepass.HttpReceiver'); $stateType=$asm.GetType('Codepass.RuntimeStatus')
@@ -104,6 +117,33 @@ Assert 'receiver:binds-when-port-freed' (Wait-For 'Ready' 25000)
 Assert 'receiver:busy-port-recovery-serves-health' ((Health '127.0.0.1' $busyPort 'probe-token') -like '*200 OK*')
 [void](Call $receiverType 'Stop' $receiver @())
 Assert 'receiver:busy-port-released-on-stop' (-not (CanConnect '127.0.0.1' $busyPort))
+
+# The field failure behind "every update leaves the receiver retrying": .NET Framework sockets
+# are inheritable and children are created with handle inheritance, so the update helper (and
+# through it the new instance) keeps holding the listening socket after the old instance exits.
+# The listener must be non-inheritable, and a child spawned while it listens must be able to
+# bind the port once the listener stops.
+$inheritPort=NewFreePort
+$cfg.PcIp='127.0.0.1'; $cfg.Port=$inheritPort
+[void](Call $receiverType 'Start' $receiver @())
+Assert 'receiver:inherit-check-binds' (Wait-For 'Ready' 10000)
+$liveListener=$receiverType.GetField('listener',$flags).GetValue($receiver)
+Assert 'receiver:listener-handle-not-inheritable' (-not [ReceiverProbe]::IsInheritable($liveListener.Server.Handle))
+$probeResult=Join-Path $root 'bind-probe.txt'
+$probeScript=Join-Path $root 'bind-probe.ps1'
+[IO.File]::WriteAllText($probeScript, ('Start-Sleep -Seconds 4' + [Environment]::NewLine +
+    'try { $l=New-Object System.Net.Sockets.TcpListener ([System.Net.IPAddress]::Loopback),' + $inheritPort +
+    '; $l.Start(); $l.Stop(); ''OK'' | Set-Content -LiteralPath ''' + $probeResult + ''' } catch { ''FAILED'' | Set-Content -LiteralPath ''' + $probeResult + ''' }'))
+# Same spawn shape as the app uses: UseShellExecute=false is what makes handles inheritable.
+$psi=New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$psi.Arguments='-NoProfile -ExecutionPolicy Bypass -File "' + $probeScript + '"'
+$psi.UseShellExecute=$false; $psi.CreateNoWindow=$true
+$probe=[System.Diagnostics.Process]::Start($psi)
+Start-Sleep -Milliseconds 800
+[void](Call $receiverType 'Stop' $receiver @())
+$probe.WaitForExit()
+Assert 'receiver:child-can-bind-after-stop' ([IO.File]::ReadAllText($probeResult).Trim() -eq 'OK')
 
 # Stopping must not wait out a retry interval: a worker parked on the next retry has to end at once.
 $cfg.PcIp='192.0.2.50'

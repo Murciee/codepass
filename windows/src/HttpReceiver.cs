@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
@@ -63,6 +64,23 @@ namespace Codepass
             return RetryDelays[attempt < 1 ? 0 : Math.Min(attempt, RetryDelays.Length - 1)];
         }
 
+        const uint HandleFlagInherit = 0x00000001;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+
+        /// <summary>
+        /// .NET Framework 的套接字句柄默认可继承，而子进程是按“继承句柄”创建的：更新助手、
+        /// 重启应用拉起的新实例都会继承这个监听套接字。旧实例退出后端口仍被子进程攥着，
+        /// 新实例就永远绑不上（日志里的“端口被占用”，只有手动重启一个由资源管理器拉起的
+        /// 进程才能恢复）。把监听套接字设成不可继承，从源头断掉这条继承链。
+        /// </summary>
+        internal static bool MakeNonInheritable(Socket socket)
+        {
+            try { return SetHandleInformation(socket.Handle, HandleFlagInherit, 0); }
+            catch { return false; }
+        }
+
         void Loop()
         {
             RuntimeStatus.Http = ConnectionState.Connecting; RaiseStatus();
@@ -78,7 +96,9 @@ namespace Codepass
                     lock (gate)
                     {
                         if (!running) return;
-                        active = new TcpListener(address, cfg.Port); listener = active; active.Start();
+                        active = new TcpListener(address, cfg.Port); listener = active;
+                        MakeNonInheritable(active.Server); // 见方法注释：否则子进程会替我们攥着端口
+                        active.Start();
                     }
                     lanBound = !IPAddress.IsLoopback(address);
                     BoundEndpoint = address + ":" + cfg.Port;
