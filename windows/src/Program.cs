@@ -1,6 +1,7 @@
 // codepass - .NET Framework 4.x 进程入口、托盘与应用级协调。
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using Microsoft.Win32;
@@ -123,16 +124,21 @@ namespace Codepass
         {
             if (Updater.TryRunInstaller(args)) return;
             bool silent = IsSilentStartup(args), createdNew;
+            // 重启应用：先等旧实例退出，再进入单实例互斥（在互斥之前，等待期间不占用它）。
+            WaitForRestartTarget(args);
+            int restartPrevious = RestartWaitProcessId(args);
             singleInstance = new Mutex(true, "Codepass_SingleInstance", out createdNew);
             if (!createdNew)
             {
-                if (!silent) MessageBox.Show(null, "codepass 已经在运行，请从系统托盘打开。", "codepass",
+                // 重启时旧实例还占着互斥（例如它没能退出）：新实例静默让位，不弹"已经在运行"。
+                if (!silent && restartPrevious == 0) MessageBox.Show(null, "codepass 已经在运行，请从系统托盘打开。", "codepass",
                     System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
                 return;
             }
             try { ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12; } catch { }
             appDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             Log.Init(Path.Combine(appDir, "app.log"));
+            if (restartPrevious != 0) Log.Write("restart: previous instance " + restartPrevious + " exited; taking over");
             Config.RecycleStaleTemporaryFiles(appDir);
             cfg = Config.Load(Path.Combine(appDir, "config.ini"));
             if (cfg.Port < 1 || cfg.Port > 65535) { cfg.Port = 8787; Log.Write("invalid port in config; fallback to 8787"); }
@@ -227,6 +233,115 @@ namespace Codepass
             if (args != null) foreach (string arg in args) if (string.Equals(arg, "--startup", StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
+
+        // ---------- 重启应用 ----------
+
+        // 重启时新实例要等旧实例退出再继续，否则会撞上单实例互斥。pid 后面跟旧实例的
+        // 启动时间 ticks，用来识别被复用的 pid（与更新流程的 WaitForParent 同一套做法）。
+        const int RestartWaitTimeoutMs = 30000;
+
+        static int RestartWaitIndex(string[] args)
+        {
+            if (args == null) return -1;
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (string.Equals(args[i], "--restart-wait", StringComparison.OrdinalIgnoreCase)) return i;
+            return -1;
+        }
+
+        /// <summary>--restart-wait 后面的前一个实例 pid；缺失、无效或等于本进程时返回 0。</summary>
+        internal static int RestartWaitProcessId(string[] args)
+        {
+            int index = RestartWaitIndex(args);
+            if (index < 0) return 0;
+            int pid;
+            if (!int.TryParse(args[index + 1], out pid) || pid <= 0) return 0;
+            using (Process self = Process.GetCurrentProcess())
+                return pid == self.Id ? 0 : pid;
+        }
+
+        /// <summary>重启新实例的命令行：隐藏状态重启时保持 --startup（不弹窗口）。</summary>
+        internal static string RestartArguments(int previousProcessId, long previousStartedUtcTicks, bool showWindow)
+        {
+            return "--restart-wait " + previousProcessId + " " + previousStartedUtcTicks + (showWindow ? "" : " --startup");
+        }
+
+        /// <summary>
+        /// 旧实例仍在时等它退出，再进入单实例互斥。pid 后必须带旧实例的启动时间 ticks：
+        /// 少了它就无法排除 pid 复用，宁可不等（交给互斥兜底），也不要无条件空等半分钟。
+        /// </summary>
+        internal static void WaitForRestartTarget(string[] args)
+        {
+            int index = RestartWaitIndex(args);
+            if (index < 0) return;
+            int pid = RestartWaitProcessId(args);
+            if (pid == 0) return;
+            long startedTicks;
+            if (index + 2 >= args.Length || !long.TryParse(args[index + 2], out startedTicks) || startedTicks <= 0) return;
+            Process previous;
+            try { previous = Process.GetProcessById(pid); }
+            catch { return; } // 已经退出，或打不开（不同完整性级别）：不等
+            using (previous)
+            {
+                try { if (previous.StartTime.ToUniversalTime().Ticks != startedTicks) return; } // pid 被复用了
+                catch { return; }
+                try { previous.WaitForExit(RestartWaitTimeoutMs); } catch { }
+            }
+        }
+
+        static void RestartApp()
+        {
+            string arguments;
+            try
+            {
+                using (Process current = Process.GetCurrentProcess())
+                {
+                    // 启动时间是等待方校验 pid 复用的依据；取不到就不重启，否则新实例会空等到超时。
+                    long startedTicks = current.StartTime.ToUniversalTime().Ticks;
+                    arguments = RestartArguments(current.Id, startedTicks, mainWindow != null && mainWindow.IsVisible);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write("restart failed: " + ex.GetType().Name);
+                RestartFailedNotice();
+                return;
+            }
+            try
+            {
+                Process started = Process.Start(new ProcessStartInfo(Assembly.GetExecutingAssembly().Location, arguments)
+                { UseShellExecute = false, WorkingDirectory = appDir });
+                if (started == null) throw new InvalidOperationException("Process.Start returned no process");
+                using (started)
+                {
+                    // 新实例要先等本进程退出；两秒内就退出的说明它根本没起来，这时不能把旧实例也关掉。
+                    if (started.WaitForExit(2000))
+                    {
+                        Log.Write("restart failed: new instance exited early (" + started.ExitCode + ")");
+                        RestartFailedNotice();
+                        return;
+                    }
+                }
+                Log.Write("restart: " + arguments);
+            }
+            catch (Exception ex)
+            {
+                // 起不来就不退出，旧实例继续用。
+                Log.Write("restart failed: " + ex.GetType().Name);
+                RestartFailedNotice();
+                return;
+            }
+            if (!QuitApp()) Log.Write("restart: current instance stayed up; the new instance exits quietly");
+        }
+
+        static void RestartFailedNotice()
+        {
+            try
+            {
+                if (tray != null) tray.ShowBalloonTip(2500, "codepass", "重启失败：新实例没有启动，程序继续运行。",
+                    System.Windows.Forms.ToolTipIcon.Warning);
+            }
+            catch { }
+        }
         internal static void RunMainWindow(System.Windows.Application application, MainWindow window, bool silent)
         {
             PrepareMainWindow(window, silent); application.MainWindow = window;
@@ -281,6 +396,7 @@ namespace Codepass
             menu.Items.Add("显示主窗口", null, delegate { ShowMainWindow(); });
             menu.Items.Add("检查更新", null, delegate { ShowMainWindowAt("about"); CheckUpdateFromTray(); });
             menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+            menu.Items.Add("重启应用", null, delegate { RestartApp(); });
             menu.Items.Add("退出", null, delegate { QuitApp(); });
             menu.Opening += delegate { pause.Text = RuntimeStatus.AutoCopyPaused ? "恢复自动复制" : "暂停自动复制 15 分钟"; };
             tray.ContextMenuStrip = menu; trayMenu = menu; tray.DoubleClick += delegate { ShowMainWindow(); };

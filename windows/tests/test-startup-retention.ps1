@@ -109,6 +109,65 @@ foreach($prefix in @('r3','d3')) {
 Assert 'startup:manual-not-silent' (-not (Call $program 'IsSilentStartup' $null @(,[string[]]@('--dry'))))
 Assert 'startup:argument-case-insensitive' (Call $program 'IsSilentStartup' $null @(,[string[]]@('--STARTUP')))
 Assert 'startup:quoted-command-with-silent-flag' ((Call $program 'StartupCommand' $null @('D:\Synthetic Folder\codepass.exe')) -eq '"D:\Synthetic Folder\codepass.exe" --startup')
+
+# ---- Restart from the tray: argument handling, wait behaviour and menu wiring ----
+# Expected menu label for the restart entry, built from code points so this suite stays ASCII-only.
+$restartLabel=[string]::Join('',[char[]]@(0x91CD,0x542F,0x5E94,0x7528))
+Assert 'restart:wait-pid-parsed' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@('--restart-wait','4242','638000000000000000'))) -eq 4242)
+Assert 'restart:wait-flag-case-insensitive' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@('--RESTART-WAIT','77','0'))) -eq 77)
+Assert 'restart:wait-pid-with-other-args' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@('--dry','--restart-wait','99','123'))) -eq 99)
+Assert 'restart:wait-missing-value' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@('--restart-wait'))) -eq 0)
+Assert 'restart:wait-invalid-pid' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@('--restart-wait','abc','1'))) -eq 0)
+$selfPid=[string][System.Diagnostics.Process]::GetCurrentProcess().Id
+Assert 'restart:wait-self-pid-ignored' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@('--restart-wait',$selfPid,'1'))) -eq 0)
+$visibleArgs=[string](Call $program 'RestartArguments' $null @(4242,[long]638123456789012345,$true))
+Assert 'restart:arguments-visible' ($visibleArgs -eq '--restart-wait 4242 638123456789012345')
+Assert 'restart:arguments-hidden-stays-silent' ((Call $program 'RestartArguments' $null @(4242,[long]0,$false)) -eq '--restart-wait 4242 0 --startup')
+Assert 'restart:arguments-round-trip' ((Call $program 'RestartWaitProcessId' $null @(,[string[]]@($visibleArgs -split ' '))) -eq 4242)
+$helperExe=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$helper=Start-Process -FilePath $helperExe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 2' -PassThru
+Start-Sleep -Milliseconds 300
+$helperTicks=[string][System.Diagnostics.Process]::GetProcessById($helper.Id).StartTime.ToUniversalTime().Ticks
+$watch=[System.Diagnostics.Stopwatch]::StartNew()
+[void](Call $program 'WaitForRestartTarget' $null @(,[string[]]@('--restart-wait',[string]$helper.Id,$helperTicks)))
+$watch.Stop()
+Assert 'restart:waits-until-target-exits' ($watch.Elapsed.TotalSeconds -ge 1.0 -and $watch.Elapsed.TotalSeconds -lt 15)
+$live=Start-Process -FilePath $helperExe -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 5' -PassThru
+$watch=[System.Diagnostics.Stopwatch]::StartNew()
+[void](Call $program 'WaitForRestartTarget' $null @(,[string[]]@('--restart-wait',[string]$live.Id,'1')))
+$watch.Stop()
+Assert 'restart:recycled-pid-not-awaited' ($watch.Elapsed.TotalSeconds -lt 1.5)
+# Without usable ticks the wait must be skipped (the mutex decides), never an unconditional 30 s stall.
+$watch=[System.Diagnostics.Stopwatch]::StartNew()
+[void](Call $program 'WaitForRestartTarget' $null @(,[string[]]@('--restart-wait',[string]$live.Id)))
+$watch.Stop()
+Assert 'restart:missing-ticks-does-not-wait' ($watch.Elapsed.TotalSeconds -lt 1.5)
+$watch=[System.Diagnostics.Stopwatch]::StartNew()
+[void](Call $program 'WaitForRestartTarget' $null @(,[string[]]@('--restart-wait',[string]$live.Id,'not-a-number')))
+$watch.Stop()
+Assert 'restart:invalid-ticks-does-not-wait' ($watch.Elapsed.TotalSeconds -lt 1.5)
+if(-not $live.HasExited){Stop-Process -Id $live.Id -Force}
+$gone=Start-Process -FilePath $helperExe -ArgumentList '-NoProfile','-Command','Start-Sleep -Milliseconds 1200' -PassThru
+$goneTicks=[string]$gone.StartTime.ToUniversalTime().Ticks
+$gone.WaitForExit()
+$watch=[System.Diagnostics.Stopwatch]::StartNew()
+[void](Call $program 'WaitForRestartTarget' $null @(,[string[]]@('--restart-wait',[string]$gone.Id,$goneTicks)))
+$watch.Stop()
+Assert 'restart:finished-target-returns-at-once' ($watch.Elapsed.TotalSeconds -lt 1.5)
+Add-Type -AssemblyName System.Windows.Forms | Out-Null
+$tray=$null; $menu=$null
+try{
+    [void](Call $program 'BuildTray' $null @())
+    $tray=$program.GetField('tray',$flags).GetValue($null); $menu=$program.GetField('trayMenu',$flags).GetValue($null)
+    $labels=@($menu.Items | ForEach-Object { $_.Text })
+    $restartAt=[Array]::IndexOf($labels,$restartLabel)
+    Assert 'tray:restart-item-present' ($restartAt -ge 0)
+    Assert 'tray:restart-just-before-exit' ($restartAt -eq ($labels.Count-2) -and $labels[$labels.Count-1] -ne '')
+}finally{
+    if($tray -ne $null){$tray.Visible=$false; $tray.Dispose()}
+    if($menu -ne $null){$menu.Dispose()}
+    $program.GetField('tray',$flags).SetValue($null,$null); $program.GetField('trayMenu',$flags).SetValue($null,$null)
+}
 $window=$windowType.GetConstructor($flags,$null,[Type[]]@($cfgType,[string]),$null).Invoke([object[]]@($cfg.PSObject.BaseObject,[string]$cfgPath))
 $program.GetField('mainWindow',$flags).SetValue($null,$window)
 [void](Call $program 'PrepareMainWindow' $null @($window,$true))
