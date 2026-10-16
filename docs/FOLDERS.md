@@ -14,7 +14,7 @@
 | `tools\` | 维护脚本 | `draw_icon.py`、`check-public-release.ps1`、`ui-checks\`（界面截图/量测脚本） | — |
 | `windows\dist\` | **当前可运行程序（唯一）** | `codepass.exe`、`config.ini`、`history.txt`、`app.log` | 任何带日期的旧版本目录 |
 | `windows\build\` | **构建/回归工作区（唯一）** | 正在跑的构建与测试产物；可清空重来 | 已完成、要长期保留的东西 |
-| `release\` | **对外发布版（唯一）** | 每个版本一个目录：`v1.0.3\` … `v1.1.1\`；未发布候选放 `_staging\` | 散落根目录的包；旧评审候选包（归档至 `archive\release-previews\`） |
+| `release\` | **对外发布版（唯一）** | 每个版本一个目录：`v1.0.3\` … `v1.1.2\`；未发布候选放 `_staging\` | 散落根目录的包；旧评审候选包（归档至 `archive\release-previews\`） |
 | `backups\` | **改动前备份（唯一）** | 按日期分组：`backups\2026-10-09\`、`backups\2026-10-10\`… | 源码、构建产物 |
 | `archive\` | **历史归档（唯一，已 gitignore）** | `win-dist\`（旧 dist 快照）、`win-build\`（旧 build 产物）、`release-previews\`（旧评审候选包）、`gradle\`（Gradle 残留） | 还需要日常使用的东西 |
 | `.openchamber\` | 工具生成 | 截图缓存 | — |

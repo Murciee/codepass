@@ -47,7 +47,7 @@ Android 短信或邮箱验证码 → Windows → 剪贴板
 
 ## 下载
 
-当前 Windows 版本 **v1.1.1**，手机模块为 v1.0.3。前往 [GitHub Releases](https://github.com/Murciee/codepass/releases/latest) 下载。
+当前 Windows 版本 **v1.1.2**，手机模块为 v1.0.3。前往 [GitHub Releases](https://github.com/Murciee/codepass/releases/latest) 下载。
 
 | 文件 | 用途 |
 | --- | --- |

@@ -17,7 +17,7 @@ namespace Codepass
     static partial class Updater
     {
         // 当前程序版本：发布新版本时同步修改此处，并保证不小于 Release tag。
-        internal const string AppVersion = "1.1.1";
+        internal const string AppVersion = "1.1.2";
 
         // 实际仓库地址（用于 GitHub 主页与版本检查）。
         internal const string RepoUrl = "https://github.com/Murciee/codepass";
