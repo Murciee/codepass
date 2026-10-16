@@ -55,7 +55,16 @@ namespace Codepass
             if ((section & SettingsSection.Privacy) != 0)
             { target.PrivacyMode = draft.PrivacyMode; target.EmailPrivacyMode = draft.EmailPrivacyMode; target.AutoLockEnabled = target.LockEnabled && draft.AutoLockEnabled; }
             if ((section & SettingsSection.Retention) != 0) target.HistoryRetentionMinutes = draft.HistoryRetentionMinutes;
-            if ((section & SettingsSection.Window) != 0) { target.WindowWidth = draft.WindowWidth; target.WindowHeight = draft.WindowHeight; }
+            if ((section & SettingsSection.Window) != 0)
+            {
+                target.WindowWidth = draft.WindowWidth; target.WindowHeight = draft.WindowHeight;
+                // 只有真正测到位置时才覆盖，避免其它路径的窗口草稿把记忆位置清成 (0,0)。
+                if (draft.WindowPositionIncluded)
+                {
+                    target.WindowLeft = draft.WindowLeft; target.WindowTop = draft.WindowTop;
+                    target.WindowPositionIncluded = true;
+                }
+            }
         }
 
         // 提交时从最新运行配置合并，避免旧草稿覆盖后台刚推进的邮件水位。

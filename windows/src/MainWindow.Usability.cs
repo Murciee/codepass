@@ -25,7 +25,7 @@ namespace Codepass
         void InitializeUsability(FrameworkElement root)
         {
             initialNetworkSignature = NetworkSignature(cfg);
-            Wire(root, "btnMax", delegate { WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; });
+            Wire(root, "btnMax", delegate { ToggleMaximize(); });
             Wire(root, "btnEmailSave", delegate { QueueSection(SettingsSection.Email); });
             Wire(root, "btnCopyLatest", delegate { if (lockOverlay.Visibility != Visibility.Visible) Program.CopyLatestCode(); });
             Wire(root, "btnNewRecords", delegate { RefreshHistory(); historyScroll.ScrollToTop(); Find<Button>(root, "btnNewRecords").Visibility = Visibility.Collapsed; });

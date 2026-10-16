@@ -40,6 +40,10 @@ namespace Codepass
         // 旧配置可能没有窗口尺寸；导入时保留当前尺寸而不是用默认值覆盖。
         public bool WindowWidthIncluded = false;
         public bool WindowHeightIncluded = false;
+        public int WindowLeft = 0;
+        public int WindowTop = 0;
+        // 只有真正测量过窗口位置才写入：否则 (0,0) 会被当成"用户把窗口放在左上角"而覆盖默认居中。
+        public bool WindowPositionIncluded = false;
         public bool LockEnabled = false;
         // 自动锁定默认关闭, 设为 true 才在启动、重开窗口或最小化时要求解锁。
         public bool AutoLockEnabled = false;
@@ -102,6 +106,8 @@ namespace Codepass
             bool sawLockEnabled = false;
             bool sawLockSalt = false;
             bool sawLockHash = false;
+            bool sawWindowLeft = false;
+            bool sawWindowTop = false;
             bool sawEmailPrivacy = false;
             string legacyEmailMode = "password";
             string[] lines = File.ReadAllLines(path, Encoding.UTF8);
@@ -146,6 +152,8 @@ namespace Codepass
                         case "pc_ip": c.PcIp = v; break;
                         case "window_width": c.WindowWidth = int.Parse(v); c.WindowWidthIncluded = true; break;
                         case "window_height": c.WindowHeight = int.Parse(v); c.WindowHeightIncluded = true; break;
+                        case "window_left": c.WindowLeft = int.Parse(v); sawWindowLeft = true; break;
+                        case "window_top": c.WindowTop = int.Parse(v); sawWindowTop = true; break;
                         case "lock_enabled": c.LockEnabled = ParseBool(v, k, strict); sawLockEnabled = true; break;
                         case "auto_lock_enabled": c.AutoLockEnabled = ParseBool(v, k, strict); break;
                         case "lock_salt": c.LockSalt = v; sawLockSalt = true; break;
@@ -194,6 +202,8 @@ namespace Codepass
                     if (strict) throw new FormatException("配置项无效：" + k, ex);
                 }
             }
+            // 位置必须成对出现；只写了一个键时按未记忆处理，启动仍使用系统默认位置。
+            c.WindowPositionIncluded = sawWindowLeft && sawWindowTop;
             if (strict && (!sawPort || !sawMinLen || !sawMaxLen))
                 throw new FormatException("配置文件缺少必要配置项。");
             if (strict && c.SecretsIncluded && (!sawToken || !sawNtfyTopic || !sawNtfyToken))
@@ -422,6 +432,12 @@ namespace Codepass
             sb.AppendLine("pc_ip = " + PcIp);
             sb.AppendLine("window_width = " + WindowWidth);
             sb.AppendLine("window_height = " + WindowHeight);
+            // 只在测量过位置后写入；没写过这两个键的配置启动时仍由系统决定位置。
+            if (WindowPositionIncluded)
+            {
+                sb.AppendLine("window_left = " + WindowLeft);
+                sb.AppendLine("window_top = " + WindowTop);
+            }
             WindowWidthIncluded = true;
             WindowHeightIncluded = true;
             WriteAtomically(path, sb.ToString());
@@ -523,6 +539,9 @@ namespace Codepass
             WindowHeight = other.WindowHeight;
             WindowWidthIncluded = other.WindowWidthIncluded;
             WindowHeightIncluded = other.WindowHeightIncluded;
+            WindowLeft = other.WindowLeft;
+            WindowTop = other.WindowTop;
+            WindowPositionIncluded = other.WindowPositionIncluded;
             LockEnabled = other.LockEnabled;
             AutoLockEnabled = other.AutoLockEnabled;
             LockSalt = other.LockSalt;

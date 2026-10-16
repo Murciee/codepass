@@ -594,6 +594,16 @@ foreach($log in @(('config save failed: '+$synthetic),('ntfy error: '+$synthetic
 $report=Call $diagnosticsType 'CreateReport' $null @($cfg)
 Assert 'diagnostics:all-free-text-excluded' (-not $report.Contains($synthetic) -and -not $report.Contains('987654') -and -not $report.Contains('314159') -and -not $report.Contains('example.invalid') -and -not $report.Contains($root))
 Assert 'diagnostics:known-event-category-retained' ($report.Contains('network'))
+$tokenReject=[string]([char]0x62D2)+[char]0x7EDD+': token '+[char]0x4E0D+[char]0x5339+[char]0x914D
+[void](Call $diagnosticsType 'ObserveLog' $null @('[http] '+$tokenReject))
+[void](Call $diagnosticsType 'ObserveLog' $null @('[http] request rejected: body too large'))
+$rejectReport=Call $diagnosticsType 'CreateReport' $null @($cfg)
+$oversizeLabel=Call $diagnosticsType 'EventCategory' $null @('[http] request rejected: body too large')
+Assert 'diagnostics:token-reject-classified' ($null -ne (Call $diagnosticsType 'EventCategory' $null @('[http] '+$tokenReject)))
+Assert 'diagnostics:oversize-reject-in-report' (-not [string]::IsNullOrEmpty($oversizeLabel) -and $rejectReport.Contains($oversizeLabel))
+Assert 'diagnostics:unrelated-http-log-unclassified' ($null -eq (Call $diagnosticsType 'EventCategory' $null @('[http] client error: '+$synthetic)))
+Assert 'diagnostics:body-reject-still-classified' (-not [string]::IsNullOrEmpty($oversizeLabel))
+Assert 'diagnostics:header-reject-not-classified' ($null -eq (Call $diagnosticsType 'EventCategory' $null @('[http] request rejected: header too large')))
 $checking=[string]([char]0x6B63)+[char]0x5728+[char]0x68C0+[char]0x67E5
 $success=[string]([char]0x76EE)+[char]0x5F55+[char]0x68C0+[char]0x67E5+[char]0x6210+[char]0x529F
 $noFolders=[string]([char]0x6CA1)+[char]0x6709+[char]0x989D+[char]0x5916+[char]0x63A5+[char]0x6536+[char]0x76EE+[char]0x5F55
@@ -626,6 +636,51 @@ $dialog=Call $windowType 'CreateDiagnosticsWindow' $window @()
 $dialog.ShowActivated=$false; $dialog.Show(); Pump
 $dialog.WindowState=[Windows.WindowState]::Minimized; Pump
 Assert 'diagnostics:minimize-preview-auto-locks' ($content.FindName('lockOverlay').Visibility -eq [Windows.Visibility]::Visible -and $null -eq $windowType.GetField('diagnosticsWindow',$flags).GetValue($window))
+# ---- 顶栏按钮状态、命中测试与窗口位置记忆 ----
+$maximizeLabel=[string]([char]0x6700)+[char]0x5927+[char]0x5316
+$restoreLabel=[string]([char]0x8FD8)+[char]0x539F
+$maximizeGlyph=([char]0xE922).ToString(); $restoreGlyph=([char]0xE923).ToString()
+$maxButton=$content.FindName('btnMax'); $minButton=$content.FindName('btnMin'); $closeButton=$content.FindName('btnClose')
+Assert 'caption:glyph-follows-state' ((Call $windowType 'CaptionGlyphFor' $null @($false)) -ceq $maximizeGlyph -and (Call $windowType 'CaptionGlyphFor' $null @($true)) -ceq $restoreGlyph)
+Assert 'caption:label-follows-state' ((Call $windowType 'CaptionLabelFor' $null @($false)) -eq $maximizeLabel -and (Call $windowType 'CaptionLabelFor' $null @($true)) -eq $restoreLabel)
+Assert 'caption:hit-caption-button-stays-client' ((Call $windowType 'CaptionHitCode' $null @($true,$true)) -eq 0)
+Assert 'caption:hit-title-bar' ((Call $windowType 'CaptionHitCode' $null @($true,$false)) -eq 2)
+Assert 'caption:hit-outside-title-bar' ((Call $windowType 'CaptionHitCode' $null @($false,$false)) -eq 0)
+Assert 'caption:buttons-start-at-maximize' ($maxButton.Content -ceq $maximizeGlyph -and $maxButton.ToolTip -eq $maximizeLabel -and $minButton.ToolTip.Length -gt 0 -and $closeButton.ToolTip.Length -gt 0)
+[void](Call $windowType 'ToggleMaximize' $window @()); Pump
+Assert 'caption:maximized-shows-restore' ($window.WindowState -eq [Windows.WindowState]::Maximized -and $maxButton.Content -ceq $restoreGlyph -and $maxButton.ToolTip -eq $restoreLabel -and [Windows.Automation.AutomationProperties]::GetName($maxButton) -eq $restoreLabel)
+[void](Call $windowType 'ToggleMaximize' $window @()); Pump
+Assert 'caption:restored-shows-maximize' ($window.WindowState -eq [Windows.WindowState]::Normal -and $maxButton.Content -ceq $maximizeGlyph -and [Windows.Automation.AutomationProperties]::GetName($maxButton) -eq $maximizeLabel)
+$maxPoint=$maxButton.TranslatePoint((New-Object Windows.Point(5,15)),$window)
+$closePoint=$closeButton.TranslatePoint((New-Object Windows.Point(5,15)),$window)
+# 锁屏时遮罩拥有输入：顶栏不参与命中测试（上一段诊断断言把窗口留在锁定态）
+$lockOverlay=$content.FindName('lockOverlay')
+$lockOverlay.Visibility=[Windows.Visibility]::Visible
+Assert 'caption:locked-window-has-no-caption-hit' ((Call $windowType 'CaptionHitFor' $window @((New-Object Windows.Point(60,30)))) -eq 0)
+$lockOverlay.Visibility=[Windows.Visibility]::Collapsed
+Assert 'caption:title-bar-area-is-caption' ((Call $windowType 'CaptionHitFor' $window @((New-Object Windows.Point(60,30)))) -eq 2)
+Assert 'caption:max-button-area-stays-client' ((Call $windowType 'CaptionHitFor' $window @((New-Object Windows.Point($maxPoint.X,$maxPoint.Y)))) -eq 0)
+Assert 'caption:close-button-area-is-client' ((Call $windowType 'CaptionHitFor' $window @((New-Object Windows.Point($closePoint.X,$closePoint.Y)))) -eq 0)
+Assert 'caption:content-area-untouched' ((Call $windowType 'CaptionHitFor' $window @((New-Object Windows.Point(60,400)))) -eq 0)
+$positionPath=Join-Path $root 'window-position.ini'
+$positionConfig=[Activator]::CreateInstance($configType,$true)
+$positionConfig.WindowWidth=1100; $positionConfig.WindowHeight=760
+$positionConfig.Save($positionPath)
+Assert 'window:unmeasured-position-not-written' (-not [IO.File]::ReadAllText($positionPath).Contains('window_left'))
+$positionConfig.WindowLeft=321; $positionConfig.WindowTop=123; $positionConfig.WindowPositionIncluded=$true
+$positionConfig.Save($positionPath)
+$positionText=[IO.File]::ReadAllText($positionPath)
+$reloadedPosition=Call $configType 'Load' $null @($positionPath)
+Assert 'window:position-round-trips' ($positionText.Contains('window_left = 321') -and $positionText.Contains('window_top = 123') -and $reloadedPosition.WindowPositionIncluded -and $reloadedPosition.WindowLeft -eq 321 -and $reloadedPosition.WindowTop -eq 123)
+[IO.File]::WriteAllText($positionPath,('port = 8787'+[Environment]::NewLine+'min_len = 4'+[Environment]::NewLine+'max_len = 8'+[Environment]::NewLine+'window_left = 10'+[Environment]::NewLine))
+$partialPosition=Call $configType 'Load' $null @($positionPath)
+Assert 'window:single-key-is-not-a-position' (-not $partialPosition.WindowPositionIncluded)
+$cfg.WindowLeft=64; $cfg.WindowTop=48; $cfg.WindowPositionIncluded=$true
+[void](Call $windowType 'ApplyConfiguredWindowPosition' $window @())
+Assert 'window:saved-position-restored' ($window.Left -eq 64 -and $window.Top -eq 48)
+$cfg.WindowLeft=100000; $cfg.WindowTop=-100000
+[void](Call $windowType 'ApplyConfiguredWindowPosition' $window @())
+Assert 'window:absurd-position-clamped-into-screen' ($window.Left -lt 100000 -and $window.Top -gt -100000 -and $window.Left -le ([Windows.SystemParameters]::VirtualScreenLeft+[Windows.SystemParameters]::VirtualScreenWidth) -and $window.Top -ge [Windows.SystemParameters]::VirtualScreenTop)
 # Restore the persisted synthetic config before exit to avoid saving injected invalid fields.
 $restored=Call $configType 'Load' $null @($configPath)
 [void](Call $configType 'CopyFrom' $cfg @($restored))

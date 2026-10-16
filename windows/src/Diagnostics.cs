@@ -63,6 +63,10 @@ namespace Codepass
             if (message == "[http] SMS skipped: length limit exceeded" || message == "[ntfy] SMS skipped: length limit exceeded") return "短信超过长度上限";
             if (message == "[http] message filtered" || message == "[ntfy] message filtered") return "短信命中过滤规则";
             if (message == "[http] SMS skipped: acceptance keywords not matched" || message == "[ntfy] SMS skipped: acceptance keywords not matched") return "短信未命中接收关键字";
+            // 手机发不进来时最常见的原因，必须在报告里看得到，而不是只留在原始日志里。
+            if (message.StartsWith("[http] 拒绝: token 不匹配", StringComparison.Ordinal)) return "短信被拒绝：访问令牌不匹配";
+            if (message.StartsWith("[http] 拒绝: 局域网监听未配置 token", StringComparison.Ordinal)) return "短信被拒绝：局域网监听未配置令牌";
+            if (message == "[http] request rejected: body too large") return "短信被拒绝：请求体超过上限";
             return null;
         }
 

@@ -419,6 +419,12 @@ namespace Codepass
                }
                if (!imported.WindowWidthIncluded) imported.WindowWidth = cfg.WindowWidth;
                 if (!imported.WindowHeightIncluded) imported.WindowHeight = cfg.WindowHeight;
+                // 与尺寸同样的处理：导入文件没带位置时保留当前记忆，不要用 (0,0) 覆盖。
+                if (!imported.WindowPositionIncluded)
+                {
+                    imported.WindowLeft = cfg.WindowLeft; imported.WindowTop = cfg.WindowTop;
+                    imported.WindowPositionIncluded = cfg.WindowPositionIncluded;
+                }
                 lock (Config.SaveGate)
                 {
                  imported.EmailLastUid = imported.EmailUidValidity = imported.EmailLastUidJunk = imported.EmailUidValidityJunk = 0;

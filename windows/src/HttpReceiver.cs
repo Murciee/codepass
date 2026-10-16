@@ -24,6 +24,8 @@ namespace Codepass
         // 最近一次成功绑定的端点文本：界面要能看出实际监听在哪（例如地址非法时被降级到本机）。
         internal volatile string BoundEndpoint;
         const int MaxClients = 32;
+        // 单条短信的 JSON（含 base64 正文）远小于此；超限请求直接拒绝并记一条可归类日志。
+        const int MaxRequestBytes = 1048576;
         static readonly byte[] CrlfCrlf = new byte[] { 13, 10, 13, 10 };
         static readonly byte[] LfLf = new byte[] { 10, 10 };
         // 前几次快（虚拟网卡地址通常几秒内就绪），之后拉长到 30 秒一次，避免长期失败时刷满日志。
@@ -138,6 +140,18 @@ namespace Codepass
             return configured;
         }
 
+        static int sizeRejections;
+
+        /// <summary>
+        /// 超限请求在 token 校验之前就会到达，未认证来源可以反复触发：
+        /// 只记首条与每 10 条，避免刷满日志、并把脱敏诊断报告里近 40 条分类事件挤掉真正原因。
+        /// </summary>
+        static void LogSizeRejection(string message)
+        {
+            int seen = System.Threading.Interlocked.Increment(ref sizeRejections);
+            if (seen == 1 || seen % 10 == 0) Log.Write(message);
+        }
+
         void HandleClient(object state)
         {
             TcpClient client = (TcpClient)state;
@@ -241,11 +255,18 @@ namespace Codepass
                         {
                             head = Encoding.ASCII.GetString(arr, 0, headerEnd); cl = ParseContentLength(head);
                             if (cl < 0 && RequestHasNoBody(head)) cl = 0;
-                            if (cl < 0 || cl > 1048576 || HeaderValue(head, "Transfer-Encoding").Length > 0) return false;
+                            if (cl > MaxRequestBytes) { LogSizeRejection("[http] request rejected: body too large"); return false; }
+                            if (cl < 0 || HeaderValue(head, "Transfer-Encoding").Length > 0) return false;
                         }
                     }
                     if (headerEnd >= 0 && cl >= 0 && len >= headerEnd + sep + cl) break;
-                    if (len > 1048576) break;
+                    // 头还没结束就超限说明请求头过长；两种情况都只记首条与每 10 条。
+                    if (len > MaxRequestBytes)
+                    {
+                        LogSizeRejection(headerEnd < 0 ? "[http] request rejected: header too large"
+                            : "[http] request rejected: body too large");
+                        break;
+                    }
                 }
                 if (headerEnd < 0) return false;
                 int bodyStart = headerEnd + sep, bodyLen = (int)ms.Length - bodyStart;

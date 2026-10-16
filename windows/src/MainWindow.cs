@@ -11,6 +11,7 @@ using System.Threading;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -84,6 +85,9 @@ namespace Codepass
          bool applying;
          bool loadingValues;
          DispatcherTimer windowSizeTimer;
+         Button btnMinCaption, btnMaxCaption, btnCloseCaption;
+         WindowChrome windowChrome;
+         HwndSource captionSource;
          string autoPcIp = "";
          bool settingsRecoveryRequired;
 
@@ -138,10 +142,13 @@ namespace Codepass
              chrome.CornerRadius = new CornerRadius(8);
              chrome.GlassFrameThickness = new Thickness(0);
              WindowChrome.SetWindowChrome(this, chrome);
-             SourceInitialized += delegate { WindowShape.Apply(this); };
+             windowChrome = chrome;
+             SourceInitialized += delegate { WindowShape.Apply(this); HookCaptionHitTest(); UpdateCaptionButtons(); };
              SizeChanged += delegate { ScheduleWindowSizeSave(); WindowShape.Apply(this); };
-             StateChanged += delegate { WindowShape.Apply(this); };
+             LocationChanged += delegate { ScheduleWindowSizeSave(); };
+             StateChanged += delegate { WindowShape.Apply(this); UpdateCaptionButtons(); };
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
+             ApplyConfiguredWindowPosition();
             FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI");
             FontSize = 13.5;
             UseLayoutRounding = true;
@@ -255,6 +262,11 @@ namespace Codepass
              chkQqPopup = Find<CheckBox>(root, "chkQqPopup");
              cmbEmailProvider = Find<ComboBox>(root, "cmbEmailProvider");
              dragBar       = Find<Border>(root, "dragBar");
+             btnMinCaption = Find<Button>(root, "btnMin");
+             btnMaxCaption = Find<Button>(root, "btnMax");
+             btnCloseCaption = Find<Button>(root, "btnClose");
+             if (btnMinCaption != null) btnMinCaption.ToolTip = "最小化";
+             if (btnCloseCaption != null) btnCloseCaption.ToolTip = "隐藏到托盘";
              lockOverlay   = Find<Border>(root, "lockOverlay");
              txtUnlockPassword = Find<PasswordBox>(root, "txtUnlockPassword");
              txtUnlockPlain = Find<TextBox>(root, "txtUnlockPlain");
@@ -284,6 +296,8 @@ namespace Codepass
             if (dragBar != null)
                 dragBar.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e)
                 {
+                    // 命中测试接管顶栏时这里不会触发；保留拖动作为兜底，并补上双击最大化/还原。
+                    if (e.ClickCount == 2) { ToggleMaximize(); return; }
                     if (e.ButtonState == MouseButtonState.Pressed)
                     {
                         try { DragMove(); } catch { }
@@ -639,6 +653,147 @@ namespace Codepass
               if (toastTimer != null) { toastTimer.Stop(); toastTimer = null; }
           }
 
+          // ---- 顶栏：最大化/还原状态、系统命中测试与窗口位置记忆 ----
+
+          /// <summary>最大化/还原：顶栏按钮、双击标题栏与系统命中测试共用同一个入口。</summary>
+          internal void ToggleMaximize()
+          {
+              WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+          }
+
+          internal const string CaptionMaximizeGlyph = "\uE922";   // ChromeMaximize
+          internal const string CaptionRestoreGlyph = "\uE923";    // ChromeRestore
+
+          internal static string CaptionGlyphFor(bool maximized) { return maximized ? CaptionRestoreGlyph : CaptionMaximizeGlyph; }
+          internal static string CaptionLabelFor(bool maximized) { return maximized ? "还原" : "最大化"; }
+
+          /// <summary>最大化后图标、悬停提示与无障碍名称要一起变成"还原"，否则按钮描述与当前动作不一致。</summary>
+          internal void UpdateCaptionButtons()
+          {
+              if (btnMaxCaption == null) return;
+              bool maximized = WindowState == WindowState.Maximized;
+              btnMaxCaption.Content = CaptionGlyphFor(maximized);
+              btnMaxCaption.ToolTip = CaptionLabelFor(maximized);
+              AutomationProperties.SetName(btnMaxCaption, CaptionLabelFor(maximized));
+          }
+
+          // 命中码：只有顶栏交给系统（拖动吸附、双击最大化）；三个窗口按钮保持 client 消息。
+          const int WmNcHitTest = 0x0084;
+          internal const int HitCaption = 2;
+
+          /// <summary>把顶栏交给系统做命中测试；窗口其它区域（含四边缩放带）保持原有行为。</summary>
+          void HookCaptionHitTest()
+          {
+              if (dragBar == null) return;
+              try
+              {
+                  IntPtr handle = new WindowInteropHelper(this).Handle;
+                  if (handle == IntPtr.Zero) return;
+                  HwndSource source = HwndSource.FromHwnd(handle);
+                  if (source == null || captionSource == source) return;
+                  source.AddHook(CaptionHitTest);
+                  captionSource = source;
+              }
+              catch { }
+          }
+
+          /// <summary>命中测试钩子：任何异常都必须退回默认处理，否则整个窗口的鼠标输入会失效。</summary>
+          IntPtr CaptionHitTest(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+          {
+              if (message != WmNcHitTest) return IntPtr.Zero;
+              try
+              {
+                  int hit = CaptionHitFor(PointFromScreen(new Point(ScreenX(lParam), ScreenY(lParam))));
+                  if (hit == 0) return IntPtr.Zero;
+                  handled = true;
+                  return new IntPtr(hit);
+              }
+              catch { return IntPtr.Zero; }
+          }
+
+          static int ScreenX(IntPtr lParam) { return unchecked((short)(lParam.ToInt64() & 0xFFFF)); }
+          static int ScreenY(IntPtr lParam) { return unchecked((short)((lParam.ToInt64() >> 16) & 0xFFFF)); }
+
+          /// <summary>顶栏空白区返回 HTCAPTION（拖动吸附与双击最大化），0 表示交回 WPF。</summary>
+          internal int CaptionHitFor(Point clientPoint)
+          {
+              if (dragBar == null) return 0;
+              if (lockOverlay != null && lockOverlay.Visibility == Visibility.Visible) return 0;   // 锁屏时不响应拖动
+              Rect bar = ClientRect(dragBar);
+              if (bar.IsEmpty) return 0;
+              // 四边与四角留给窗口缩放：拖动区收进缩放边框，避免把边缘拖动也变成移动窗口。
+              double inset = windowChrome == null ? 10 : windowChrome.ResizeBorderThickness.Left;
+              bar = Rect.Intersect(bar, new Rect(inset, inset,
+                  Math.Max(0, ActualWidth - inset * 2), Math.Max(0, ActualHeight - inset * 2)));
+              if (bar.IsEmpty) return 0;
+              return CaptionHitCode(bar.Contains(clientPoint), InCaptionButton(clientPoint));
+          }
+
+          /// <summary>三个窗口按钮的命中区域；按钮必须留在客户区，否则悬停、按下与提示都会失效。</summary>
+          bool InCaptionButton(Point clientPoint)
+          {
+              return ClientRect(btnMaxCaption).Contains(clientPoint)
+                  || ClientRect(btnMinCaption).Contains(clientPoint)
+                  || ClientRect(btnCloseCaption).Contains(clientPoint);
+          }
+
+          /// <summary>
+          /// 顶栏命中决策：窗口按钮保持 WPF 点击（client 消息才有悬停/按下/提示）；
+          /// 其余顶栏交给系统按标题栏处理（拖动吸附、双击最大化/还原）。
+          /// Windows 11 的贴靠布局需要把最大化按钮交给系统（HTMAXBUTTON），代价是按钮失去 WPF 的
+          /// 悬停、按下与提示反馈，因此不启用。
+          /// </summary>
+          internal static int CaptionHitCode(bool inDragBar, bool inCaptionButton)
+          {
+              if (inCaptionButton) return 0;
+              return inDragBar ? HitCaption : 0;
+          }
+
+          /// <summary>元素在窗口客户区内的矩形；未布局或已释放时返回空矩形。</summary>
+          Rect ClientRect(FrameworkElement element)
+          {
+              if (element == null) return Rect.Empty;
+              try
+              {
+                  if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return Rect.Empty;
+                  return new Rect(element.TranslatePoint(new Point(0, 0), this), element.RenderSize);
+              }
+              catch { return Rect.Empty; }
+          }
+
+          /// <summary>没有记忆位置时保持系统居中；记忆位置在当前虚拟桌面外时放弃，避免窗口开在看不见的地方。</summary>
+          void ApplyConfiguredWindowPosition()
+          {
+              if (!cfg.WindowPositionIncluded) return;
+              double left, top;
+              if (!TryClampWindowPosition(cfg.WindowLeft, cfg.WindowTop, Width, Height,
+                      SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                      SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight, out left, out top)) return;
+              WindowStartupLocation = WindowStartupLocation.Manual;
+              Left = left; Top = top;
+          }
+
+          /// <summary>
+          /// 把记忆位置限制在虚拟桌面内：横向至少留 160、纵向至少留 48 逻辑像素可见（多屏可为负坐标）。
+          /// 数值不可用或桌面尺寸异常时返回 false，调用方保持默认居中。
+          /// </summary>
+          internal static bool TryClampWindowPosition(double left, double top, double width, double height,
+              double virtualLeft, double virtualTop, double virtualWidth, double virtualHeight,
+              out double clampedLeft, out double clampedTop)
+          {
+              clampedLeft = left; clampedTop = top;
+              if (double.IsNaN(left) || double.IsNaN(top) || double.IsInfinity(left) || double.IsInfinity(top)) return false;
+              if (virtualWidth < 200 || virtualHeight < 200) return false;
+              double visibleWidth = Math.Min(width < 1 ? 200 : width, 160);
+              double visibleHeight = Math.Min(height < 1 ? 200 : height, 48);
+              double maxLeft = Math.Max(virtualLeft, virtualLeft + virtualWidth - visibleWidth);
+              double maxTop = Math.Max(virtualTop, virtualTop + virtualHeight - visibleHeight);
+              clampedLeft = Math.Min(Math.Max(left, virtualLeft), maxLeft);
+              clampedTop = Math.Min(Math.Max(top, virtualTop), maxTop);
+              return true;
+          }
+
+          /// <summary>尺寸与位置一起延迟保存（拖动、缩放、双击最大化都走这里）。</summary>
           void ScheduleWindowSizeSave()
           {
               if (!IsLoaded || WindowState != WindowState.Normal) return;
@@ -668,11 +823,19 @@ namespace Codepass
 
           void SaveWindowSize()
           {
-              if (WindowState != WindowState.Normal || Width < MinWidth || Height < MinHeight) return;
+              // 未完成首次布局时 Left/Top 还是 0,0；存下来会把窗口钉在左上角。
+              if (!IsLoaded || WindowState != WindowState.Normal || Width < MinWidth || Height < MinHeight) return;
               int width = (int)Math.Round(Width);
               int height = (int)Math.Round(Height);
-              if (width == cfg.WindowWidth && height == cfg.WindowHeight) return;
-              QueueDraft(SettingsSection.Window, new Config { WindowWidth = width, WindowHeight = height });
+              int left = (int)Math.Round(Left);
+              int top = (int)Math.Round(Top);
+              if (width == cfg.WindowWidth && height == cfg.WindowHeight
+                  && cfg.WindowPositionIncluded && left == cfg.WindowLeft && top == cfg.WindowTop) return;
+              QueueDraft(SettingsSection.Window, new Config
+              {
+                  WindowWidth = width, WindowHeight = height,
+                  WindowLeft = left, WindowTop = top, WindowPositionIncluded = true
+              });
           }
 
           protected override void OnClosed(EventArgs e)
