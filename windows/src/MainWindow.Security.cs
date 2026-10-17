@@ -93,13 +93,10 @@ namespace Codepass
              Style iconStyle = root.Resources["InlineIconBtn"] as Style;
              StackPanel tokenHost = Find<StackPanel>(root, "tokenHost");
              StackPanel ntfyHost = Find<StackPanel>(root, "ntfyTokenHost");
-             StackPanel emailAuthHost = Find<StackPanel>(root, "emailAuthHost");
              fldToken = new SecretField(passwordStyle, inputStyle, iconStyle);
               fldNtfyToken = new SecretField(passwordStyle, inputStyle, iconStyle);
-              fldEmailAuth = new SecretField(passwordStyle, inputStyle, iconStyle);
                  AttachSecret(tokenHost, fldToken, "局域网接收必填");
                AttachSecret(ntfyHost, fldNtfyToken, "私有服务器可选");
-               if (emailAuthHost != null) fldEmailAuth.Attach(emailAuthHost);
          }
 
           static void AttachSecret(StackPanel host, SecretField field, string hint)

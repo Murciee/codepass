@@ -22,7 +22,8 @@
 | `windows\src\ClipboardService.cs` | 独立消息窗口、后台 STA 写入重试、请求号、手动复制、清理计时器与释放 | 剪贴板所有权、旧请求取消、序列号保护 |
 | `windows\src\MainWindow.cs` | 主窗口共享字段、构造初始化、控件查找/事件接线、响应式布局、窗口/托盘生命周期 | 控件初始化、共享状态、窗口行为、跨页面事件 |
 | `windows\src\MainWindow.Settings.cs` | 页面切换、普通设置、短信接收关键字标签、配置读取/保存、导入导出、电脑/ntfy 连通性、手机配置生成 | 新增或修改短信/电脑接收设置、配置保存与校验 |
-| `windows\src\MainWindow.Email.cs` | 邮箱服务商预设、关键词标签、邮箱预览、状态刷新和连接测试 | 邮箱设置交互、状态显示、邮箱连接测试 |
+| `windows\src\MainWindow.Email.cs` | 邮箱组件装配、保存/提示事件接入、应用状态转发 | 邮箱页面与主窗口的接入边界 |
+| `windows\src\EmailSettingsPage.cs` | 邮箱控件绑定、页面草稿、服务商预设、关键词、校验与可取消的连接测试 | 邮箱设置项、页面交互、连接测试生命周期 |
 | `windows\src\MainWindow.Security.cs` | 密码锁、自动锁定状态和密钥字段创建 | 密码锁、自动锁定和令牌输入 |
 | `windows\src\MainWindow.History.cs` | 记录频道筛选、历史列表、行操作菜单、单条删除、原文窗口和 toast 提示 | 记录列表、复制验证码、单条删除、原文显示和页面提示 |
 | `windows\src\MainWindow.About.cs` | 脱敏诊断窗口、GitHub 页面、版本信息和检查更新 | 关于页、诊断预览、更新提示 |
@@ -41,6 +42,7 @@
 | `windows\src\PasswordDialog.cs` | 设置/验证程序锁密码的对话框 | 修改密码设置/验证流程的界面 |
 | `windows\src\DisplayMotion.cs` | 对话框显示动画和显示器刷新率读取 | 修改弹窗动画或刷新率兼容性 |
 | `windows\src\Config.cs` | 配置模型、读取/保存、DPAPI 密钥保护、原子写入、旧配置兼容 | 配置字段、默认值、配置格式、保存失败恢复 |
+| `windows\src\ConfigSettings.cs` | 普通配置项元数据、默认值初始化、INI 读写、字段复制、分区合并与数值范围 | 配置共用机制；具体字段的定义在 `Config.cs` 的 `[Setting]` 上 |
 | `windows\src\History.cs` | 可见历史、单条删除/清空、过期清理、DPAPI 历史行与记录/凭据统一原子提交 | 记录上限、失败回滚、历史兼容；删除仅移除可见记录，保留接收凭据 |
 | `windows\src\ReceiptLedger.cs` | 接收去重、待确认邮件、近期凭据过期、r3/d3 序列化与回滚快照 | 去重时间窗、邮件确认、升级兼容；不独立落盘 |
 | `windows\src\EmailImap.cs` | 只读 IMAP 协议、连接/登录、文件夹、邮件头和正文解析 | IMAP 兼容性、FETCH/IDLE、MIME 或正文解析 |
@@ -77,7 +79,7 @@
 
 1. `MainWindow.cs`：构造函数与控件初始化、自动保存事件接线、响应式布局、共享窗口/托盘行为；
 2. `MainWindow.Settings.cs`：页面切换、普通设置、短信接收关键字标签、配置同步、导入导出、电脑/ntfy 测试；
-3. `MainWindow.Email.cs`：邮箱服务商、关键词、邮箱状态和邮箱连接测试；
+3. `MainWindow.Email.cs`：装配 `EmailSettingsPage`，接入统一保存队列、提示和状态；邮箱控件、草稿、事件、测试取消及结果版本归 `EmailSettingsPage`；
 4. `MainWindow.Security.cs`：密码锁、自动锁定和密钥字段；隐私通知选项的配置同步在 `MainWindow.Settings.cs`；
 5. `MainWindow.History.cs`：记录搜索/筛选、复制验证码、原文窗口和 toast；
 6. `MainWindow.About.cs`：脱敏诊断、GitHub 和检查更新；
@@ -88,9 +90,9 @@
 | 需求 | 先读 | 再查 |
 | --- | --- | --- |
 | 输入框/按钮间距、标签位置、窄窗口布局 | `MainWindow.Xaml.cs` | `MainWindow.cs` 中 `InitializeResponsiveForms`、`UpdateResponsiveForms` 和对应控件名 |
-| 新增一个设置项 | `Config.cs` | `MainWindow.Xaml.cs`、`MainWindow.Settings.cs` 的字段/加载/保存/校验；若是邮箱项再看 `MainWindow.Email.cs` |
-| 修改邮箱页面交互 | `MainWindow.Email.cs` | `MainWindow.Xaml.cs`、`Config.cs`、`EmailWatcher.cs` |
-| 新增邮箱服务或调整 IMAP 行为 | `EmailImap.cs`、`EmailWatcher.cs` | `Config.cs`、`MainWindow.Email.cs` 的邮箱设置同步 |
+| 新增一个设置项 | `Config.cs` 的 `[Setting]` | `MainWindow.Xaml.cs`；邮箱项在 `EmailSettingsPage.cs` 注册 `Bind`，其它页面仍看对应 partial 的加载/草稿入口 |
+| 修改邮箱页面交互 | `EmailSettingsPage.cs` | `MainWindow.Xaml.cs`；应用层接入看 `MainWindow.Email.cs`，收件行为看 `EmailWatcher.cs` |
+| 新增邮箱服务或调整 IMAP 行为 | `EmailImap.cs`、`EmailWatcher.cs` | `Config.cs`、`EmailSettingsPage.cs` 的邮箱设置同步 |
 | 调整验证码识别 | `CodeExtractor.cs` | `IncomingDelivery.cs` 的短信/邮件投递点、相关回归脚本 |
 | 修改历史搜索、单条删除或清理 | `History.cs`、`MainWindow.History.cs` | `ReceiptLedger.cs` 的接收凭据、`IncomingDelivery.cs` 的延迟投递门禁；清理分钟数保存入口在 `MainWindow.cs` |
 | 修改 HTTP 或 ntfy | `HttpReceiver.cs`、`NtfyReceiver.cs` | `MessageDelivery.cs` 的封装/检查点、`Program.cs` 的启停装配 |
@@ -109,4 +111,14 @@
 
 ## 后续拆分原则
 
-如果继续拆 `MainWindow.cs`，按用户可见页面或完整功能边界拆成更多 `partial` 文件，而不是按“所有事件处理器/所有辅助方法”拆。每个文件应让维护者能同时看到一页的布局入口和行为入口；拆分不应改变控件名、配置格式、线程生命周期或发布流程。
+如果继续拆 `MainWindow.cs`，按用户可见页面或完整功能边界组织；已有 partial 可参照 `EmailSettingsPage` 渐进提取为页面组件，由组件管理控件和交互生命周期。每个文件应让维护者能同时看到一页的布局入口和行为入口；拆分不应改变控件名、配置格式、线程生命周期或发布流程。
+
+## 新增普通配置项的最短路径
+
+1. 在 `Config.cs` 声明强类型字段和 `[Setting]`：给出 INI 键、`SettingsSection`、默认值；整数可声明上下限，多行文本使用 `Base64 = true`。默认值初始化、INI 读写、`CopyFrom` 和普通字段的分区合并会自动覆盖该字段。
+2. 增加对应 XAML 控件。邮箱页面在 `EmailSettingsPage` 构造函数注册一条 `Bind(配置键, 控件名, 校验标签)`，自动接入回填、草稿读取、分区归属和规则自动保存；连接区保持显式保存。数值校验及邮箱间隔说明使用同一份配置元数据。
+3. 添加实际业务消费逻辑和对应行为回归。涉及多个字段的规则在分区读取后校验；邮箱服务商切换、加密字段、导出脱敏、迁移标记、窗口位置及邮箱水位具有专门语义，继续在专用路径处理，不能直接套用普通字段合并。
+
+邮箱组件通过 `SaveRequested`、`ToastRequested`、`FeedbackRequested`、`SimulateRequested` 与宿主交互；连接测试、连接草稿读取及结果展示门禁从构造参数传入。布局仍组合在主窗口 XAML 中，共享主题和响应式表单机制，控件 `x:Name` 保持稳定。
+
+`test-settings-components.ps1` 覆盖普通配置的往返、复制、旧键兼容、分区合并和水位隔离；直接实例化邮箱组件并注入假连接测试，验证草稿、取消、迟到结果和保存事件，已纳入 `Run-All.ps1`。

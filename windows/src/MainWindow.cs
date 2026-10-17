@@ -35,23 +35,10 @@ namespace Codepass
          SecretField fldToken, fldNtfyToken;
          CheckBox chkTip, chkStartup, chkAutoLock;
         ComboBox cmbPrivacy, cmbEmailPrivacy;
-        TextBox txtEmailServer, txtEmailAccount, txtEmailPoll, txtEmailKeywords, txtEmailSenders;
-        SecretField fldEmailAuth;
-        CheckBox chkEmail, chkEmailJunk, chkEmailNotify, chkEmailAutoCopy, chkQqPopup;
-        ComboBox cmbEmailProvider;
-        TextBlock emailAuthHint, emailProviderHint;
-        Button btnEmailAuthHelp;
-        TextBox txtEmailKeywordAdd;
-        WrapPanel emailKeywordTags;
+        EmailSettingsPage emailPage;
         TextBox txtAcceptKeywordAdd;
         WrapPanel acceptKeywordTags;
-        CheckBox chkEmailSaveBody;
-        TextBlock lblEmailPreviewResult;
-        TextBlock lblEmailTestResult, lblStorageError, lblQqStatus;
-        TextBox txtEmailSubjectPreview;
-        Button btnEmailTest;
-        CancellationTokenSource emailTestCancel;
-        bool warnedEmailAuthUndecryptable;
+        TextBlock lblStorageError;
         Button btnTestPc, btnTestNtfy, btnLock;
         TextBlock lblPcStatus;
         ListBox listHost;
@@ -65,7 +52,7 @@ namespace Codepass
           Button navHistory, navGeneral, navEmail, navSecurity, navAbout;
          Grid pageSet, pageLog, pageAbout;
          ScrollViewer settingsScroll;
-           Border cardNetwork, cardGeneral, cardNotify, cardSecurity, cardMore, cardEmail, cardEmailFilters, cardQqPopup;
+            Border cardNetwork, cardGeneral, cardNotify, cardSecurity, cardMore;
         Border cardNtfy, cardSmsFilters;
         Border dragBar;
         Border lockOverlay;
@@ -236,31 +223,8 @@ namespace Codepass
             cardNotify    = Find<Border>(root, "cardNotify");
             cardSecurity  = Find<Border>(root, "cardSecurity");
             cardMore      = Find<Border>(root, "cardMore");
-              cardEmail     = Find<Border>(root, "cardEmail");
-              cardEmailFilters = Find<Border>(root, "cardEmailFilters");
-              cardQqPopup = Find<Border>(root, "cardQqPopup");
-              emailAuthHint = Find<TextBlock>(root, "emailAuthHint");
-              emailProviderHint = Find<TextBlock>(root, "emailProviderHint");
-               btnEmailAuthHelp = Find<Button>(root, "btnEmailAuthHelp");
-               txtEmailKeywordAdd = Find<TextBox>(root, "txtEmailKeywordAdd");
-               emailKeywordTags = Find<WrapPanel>(root, "emailKeywordTags");
                 acceptKeywordTags = Find<WrapPanel>(root, "acceptKeywordTags");
                 txtAcceptKeywordAdd = Find<TextBox>(root, "txtAcceptKeywordAdd");
-             txtEmailServer = Find<TextBox>(root, "txtEmailServer");
-             txtEmailAccount = Find<TextBox>(root, "txtEmailAccount");
-             txtEmailPoll = Find<TextBox>(root, "txtEmailPoll");
-             txtEmailKeywords = Find<TextBox>(root, "txtEmailKeywords");
-             txtEmailSenders = Find<TextBox>(root, "txtEmailSenders");
-             chkEmail = Find<CheckBox>(root, "chkEmail");
-             chkEmailJunk = Find<CheckBox>(root, "chkEmailJunk");
-             chkEmailNotify = Find<CheckBox>(root, "chkEmailNotify");
-              chkEmailAutoCopy = Find<CheckBox>(root, "chkEmailAutoCopy");
-              chkEmailSaveBody = Find<CheckBox>(root, "chkEmailSaveBody");
-              btnEmailTest = Find<Button>(root, "btnEmailTest");
-              txtEmailSubjectPreview = Find<TextBox>(root, "txtEmailSubjectPreview");
-              lblEmailPreviewResult = Find<TextBlock>(root, "lblEmailPreviewResult");
-             chkQqPopup = Find<CheckBox>(root, "chkQqPopup");
-             cmbEmailProvider = Find<ComboBox>(root, "cmbEmailProvider");
              dragBar       = Find<Border>(root, "dragBar");
              btnMinCaption = Find<Button>(root, "btnMin");
              btnMaxCaption = Find<Button>(root, "btnMax");
@@ -282,10 +246,9 @@ namespace Codepass
               lblUpdateStatus = Find<TextBlock>(root, "lblUpdateStatus");
               if (lblAboutVersion != null)
                    lblAboutVersion.Text = "codepass v" + Updater.AppVersion;
-              lblEmailTestResult = Find<TextBlock>(root, "lblEmailTestResult");
-              lblStorageError = Find<TextBlock>(root, "lblStorageError");
-              lblQqStatus = Find<TextBlock>(root, "lblQqStatus");
-              BuildSecretFields(root);
+               lblStorageError = Find<TextBlock>(root, "lblStorageError");
+               BuildSecretFields(root);
+               InitializeEmailPage(root);
               InitializeUsability(root);
               InitializeResponsiveForms(pageSet);
               settingsScroll.SizeChanged += delegate { UpdateResponsiveForms(); };
@@ -316,11 +279,6 @@ namespace Codepass
              Wire(root, "btnUnlock", delegate { TryUnlock(); });
               Wire(root, "btnGithub", delegate { OpenRepoPage(); });
                Wire(root, "btnUpdate", delegate { CheckUpdate(); });
-               Wire(root, "btnEmailAuthHelp", delegate
-               {
-                   try { Process.Start(new ProcessStartInfo("https://myaccount.google.com/apppasswords") { UseShellExecute = true }); }
-                   catch { ShowToast("无法打开浏览器，请在 Google 账号设置中查找应用专用密码"); }
-               });
                Wire(root, "tabSmsHistory", delegate { SelectHistoryChannel("sms"); });
                Wire(root, "tabEmailHistory", delegate { SelectHistoryChannel("email"); });
                Wire(root, "tabAllHistory", delegate { SelectHistoryChannel("all"); });
@@ -335,13 +293,6 @@ namespace Codepass
                      if (MessageBox.Show(this, "恢复默认接收关键字（留空表示全部收取）？", "确认", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
                      txtAcceptKeywords.Text = new Config().SmsAcceptKeywords; QueueSection(SettingsSection.SmsRules);
                  });
-                Wire(root, "btnEmailKeywordAdd", delegate { AddEmailKeywords(); });
-                Wire(root, "btnEmailKeywordDefault", delegate
-                {
-                    if (MessageBox.Show(this, "恢复默认主题关键词？", "确认", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-                   txtEmailKeywords.Text = new Config().EmailKeywords; QueueSection(SettingsSection.EmailRules);
-                });
-                 Wire(root, "btnEmailTest", delegate { TestEmailConnection(); });
                  Wire(root, "btnStorageRetry", delegate
                  {
                      if (!ApplySection(SettingsSection.EmailRules)) return;
@@ -349,13 +300,6 @@ namespace Codepass
                      catch { ShowToast("保存仍未完成，请检查文件权限与磁盘空间"); }
                      UpdateEmailStatus();
                  });
-                Wire(root, "btnEmailGuide", delegate
-                {
-                    string guide = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GMAIL_APP_PASSWORD.md");
-                    if (!File.Exists(guide)) guide = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "docs", "GMAIL_APP_PASSWORD.md"));
-                    try { Process.Start(new ProcessStartInfo(File.Exists(guide) ? guide : "https://support.google.com/accounts/answer/185833?hl=zh-Hans") { UseShellExecute = true }); }
-                    catch { ShowToast("请查看交付目录的 GMAIL_APP_PASSWORD.md 教程"); }
-                });
             Wire(root, "btnClear", delegate
             {
                  if (MessageBox.Show(this, "确定清空全部记录？", "确认",
@@ -401,19 +345,16 @@ namespace Codepass
          void WireAutoApply(FrameworkElement root)
         {
                TextBox[] boxes = new TextBox[] { txtPort, txtPcIp, txtMin, txtMax, txtClear, txtSmsMaxLength,
-                   txtNtfyServer, txtNtfyTopic, txtFilterKeywords, txtFilterRegex, txtAcceptKeywords,
-                   txtEmailServer, txtEmailAccount, txtEmailPoll, txtEmailKeywords, txtEmailSenders };
+                    txtNtfyServer, txtNtfyTopic, txtFilterKeywords, txtFilterRegex, txtAcceptKeywords };
             foreach (TextBox tb in boxes)
             {
                 if (tb == null) continue;
-                if (tb == txtEmailServer || tb == txtEmailAccount) continue;
                 tb.LostFocus += delegate(object sender, RoutedEventArgs e) { QueueSection(SectionFor((FrameworkElement)sender)); };
                  tb.KeyDown += delegate(object s, KeyEventArgs e)
                  {
                      // 多行过滤/邮箱输入框用回车换行，失焦时自动保存；其他输入框回车立即保存。
                      if (e.Key == Key.Return
-                         && s != txtFilterKeywords && s != txtFilterRegex && s != txtAcceptKeywords
-                          && s != txtEmailKeywords && s != txtEmailSenders) QueueSection(SectionFor((FrameworkElement)s));
+                          && s != txtFilterKeywords && s != txtFilterRegex && s != txtAcceptKeywords) QueueSection(SectionFor((FrameworkElement)s));
                  };
             }
              if (chkTip != null) chkTip.Click += delegate { QueueSection(SettingsSection.SmsRules); };
@@ -423,23 +364,8 @@ namespace Codepass
                if (cmbEmailPrivacy != null) cmbEmailPrivacy.SelectionChanged += delegate { QueueSection(SettingsSection.Privacy); };
                if (fldToken != null) fldToken.Committed += delegate { QueueSection(SettingsSection.Sms); };
                if (fldNtfyToken != null) fldNtfyToken.Committed += delegate { QueueSection(SettingsSection.Ntfy); };
-               if (chkEmail != null) chkEmail.Click += delegate { InvalidateEmailTest(); SettingsFeedback("邮箱连接草稿已修改 · 点击保存连接生效", false); };
-               if (chkEmailJunk != null) chkEmailJunk.Click += delegate { QueueSection(SettingsSection.EmailRules); };
-               if (chkEmailNotify != null) chkEmailNotify.Click += delegate { QueueSection(SettingsSection.EmailRules); };
-               if (chkEmailAutoCopy != null) chkEmailAutoCopy.Click += delegate { QueueSection(SettingsSection.EmailRules); };
-                if (chkEmailSaveBody != null) chkEmailSaveBody.Click += delegate { QueueSection(SettingsSection.EmailRules); };
-               if (chkQqPopup != null) chkQqPopup.Click += delegate { QueueSection(SettingsSection.EmailRules); };
-              if (cmbEmailProvider != null) cmbEmailProvider.SelectionChanged += delegate
-              {
-                  if (loadingValues) return;
-                   ApplyEmailProviderPreset();
-                   SettingsFeedback("邮箱连接草稿已修改 · 测试后点击保存连接", false);
-              };
               if (txtPcIp != null) txtPcIp.TextChanged += delegate { if (!loadingValues) autoPcIp = ""; };
-               if (txtEmailServer != null) txtEmailServer.TextChanged += delegate { UpdateEmailAuthHint(); };
-               if (txtEmailKeywords != null) txtEmailKeywords.TextChanged += delegate { RenderEmailKeywordTags(); };
                 if (txtAcceptKeywords != null) txtAcceptKeywords.TextChanged += delegate { RenderAcceptKeywordTags(); };
-               if (txtEmailSubjectPreview != null) txtEmailSubjectPreview.TextChanged += delegate { UpdateEmailPreview(); };
                if (txtAcceptKeywordAdd != null)
                 {
                     txtAcceptKeywordAdd.KeyDown += delegate(object s, KeyEventArgs e)
@@ -453,24 +379,11 @@ namespace Codepass
                         if (txtAcceptKeywordAdd.Text.Length == 0) txtAcceptKeywordAdd.Visibility = Visibility.Collapsed;
                     };
                 }
-                if (txtEmailKeywordAdd != null)
-               {
-                   txtEmailKeywordAdd.KeyDown += delegate(object s, KeyEventArgs e)
-                   {
-                       if (e.Key == Key.Return) { AddEmailKeywords(); e.Handled = true; }
-                       if (e.Key == Key.Escape) { txtEmailKeywordAdd.Clear(); txtEmailKeywordAdd.Visibility = Visibility.Collapsed; e.Handled = true; }
-                   };
-                   // 收起条件：没有内容又失去焦点（有内容时保留输入框）。
-                   txtEmailKeywordAdd.LostKeyboardFocus += delegate
-                   {
-                       if (txtEmailKeywordAdd.Text.Length == 0) txtEmailKeywordAdd.Visibility = Visibility.Collapsed;
-                   };
-               }
          }
 
          void WireMultilineScrolling()
          {
-             TextBox[] boxes = { txtFilterKeywords, txtFilterRegex, txtAcceptKeywords, txtEmailKeywords, txtEmailSenders };
+             TextBox[] boxes = { txtFilterKeywords, txtFilterRegex, txtAcceptKeywords };
              foreach (TextBox box in boxes)
                  if (box != null) box.PreviewMouseWheel += ScrollMultilineTextBox;
          }

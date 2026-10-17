@@ -1566,7 +1566,7 @@ namespace Codepass
                       <Grid.RowDefinitions><RowDefinition Height='Auto'/><RowDefinition Height='Auto'/></Grid.RowDefinitions>
                       <StackPanel Grid.Row='0' Grid.Column='0' Margin='0,0,16,0' VerticalAlignment='Center'>
                         <TextBlock Style='{StaticResource SettingsCardHeader}' Text='检查间隔'/>
-                        <TextBlock Style='{StaticResource SettingsCardDescription}' Text='10～600；支持 IDLE 时实时接收，其他目录定时检查'/>
+                        <TextBlock x:Name='emailPollHint' Style='{StaticResource SettingsCardDescription}'/>
                       </StackPanel>
                       <Border Grid.Row='0' Grid.Column='1' Style='{StaticResource InputAddon}' Width='92' HorizontalAlignment='Right'>
                         <Grid>

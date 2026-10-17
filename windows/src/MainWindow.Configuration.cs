@@ -16,7 +16,6 @@ namespace Codepass
         readonly Dictionary<SettingsSection, int> saveVersions = new Dictionary<SettingsSection, int>();
         readonly Dictionary<SettingsSection, string> sectionErrors = new Dictionary<SettingsSection, string>();
         int saveVersion;
-        bool emailConnectionDirty;
         readonly object settingsResultGate = new object();
         readonly Queue<SettingsSaveResult> settingsResults = new Queue<SettingsSaveResult>();
         int settingsSaveFailureCount;
@@ -57,7 +56,7 @@ namespace Codepass
         }
         void SettingsFeedback(string message, bool error)
         {
-            if (!error && emailConnectionDirty) message += " · 邮箱连接草稿未保存";
+            if (!error && emailPage != null && emailPage.ConnectionDirty) message += " · 邮箱连接草稿未保存";
             if (!error && sectionErrors.Count > 0)
             {
                 foreach (string problem in sectionErrors.Values) { message = "仍有未保存设置：" + problem; break; }
@@ -66,11 +65,10 @@ namespace Codepass
             TextBlock label = Find<TextBlock>((FrameworkElement)Content, "lblSettingsFeedback");
             if (label != null) { label.Text = message; label.Foreground = error ? Brushes.Firebrick : FgFaint; }
         }
-        bool ReadNumber(TextBox box, string label, int min, int max, out int value)
+        bool ReadNumber(TextBox box, string label, string key, out int value)
         {
-            value = 0;
-            return int.TryParse(box.Text.Trim(), out value) && value >= min && value <= max
-                || Invalid(box, label + "需为 " + min + "～" + max);
+            SettingDefinition definition = ConfigSettings.Get(key);
+            return definition.TryNumber(box.Text, out value) || Invalid(box, definition.NumberError(label));
         }
         bool ReadDraft(SettingsSection section, out Config draft)
         {
@@ -80,7 +78,7 @@ namespace Codepass
                 if (Includes(section, SectionFor(field.Key))) { field.Value.Visibility = Visibility.Collapsed; AutomationProperties.SetHelpText(field.Key, ""); }
             if (Includes(section, SettingsSection.Sms))
             {
-                if (!ReadNumber(txtPort, "监听端口", 1, 65535, out draft.Port)) return false;
+                if (!ReadNumber(txtPort, "监听端口", "port", out draft.Port)) return false;
                 draft.PcIp = txtPcIp.Text.Trim();
                 if (cfg.PcIp.Length == 0 && draft.PcIp == autoPcIp) draft.PcIp = "";
                 if (draft.PcIp.Length > 0 && !IsUsablePcIp(draft.PcIp)) return Invalid(txtPcIp, "请输入有效的电脑 IPv4 地址");
@@ -88,10 +86,10 @@ namespace Codepass
             }
             if (Includes(section, SettingsSection.SmsRules))
             {
-                if (!ReadNumber(txtMin, "最短验证码长度", 1, 32, out draft.MinLen)
-                    || !ReadNumber(txtMax, "最长验证码长度", 1, 32, out draft.MaxLen)
-                    || !ReadNumber(txtSmsMaxLength, "短信长度上限", 1, Config.MaximumSmsMaxLength, out draft.SmsMaxLength)
-                    || !ReadNumber(txtClear, "剪贴板清理秒数", 0, 86400, out draft.AutoClearSeconds)) return false;
+                if (!ReadNumber(txtMin, "最短验证码长度", "min_len", out draft.MinLen)
+                    || !ReadNumber(txtMax, "最长验证码长度", "max_len", out draft.MaxLen)
+                    || !ReadNumber(txtSmsMaxLength, "短信长度上限", "sms_max_length", out draft.SmsMaxLength)
+                    || !ReadNumber(txtClear, "剪贴板清理秒数", "auto_clear_seconds", out draft.AutoClearSeconds)) return false;
                 if (draft.MaxLen < draft.MinLen) return Invalid(txtMax, "最长验证码长度不能小于最短长度");
                 draft.FilterKeywords = txtFilterKeywords.Text; draft.FilterRegex = txtFilterRegex.Text;
                 draft.SmsAcceptKeywords = txtAcceptKeywords.Text;
@@ -108,30 +106,11 @@ namespace Codepass
                     && (!Uri.TryCreate(draft.NtfyServer, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length > 0))
                     return Invalid(txtNtfyServer, "ntfy 服务器必须是有效的 HTTPS 地址");
             }
-            if (Includes(section, SettingsSection.Email))
-            {
-                draft.EmailServer = txtEmailServer.Text.Trim(); draft.EmailAccount = txtEmailAccount.Text.Trim(); draft.EmailAuth = fldEmailAuth.Text.Trim();
-                draft.EmailEnabled = chkEmail.IsChecked == true;
-                if (draft.EmailEnabled && (draft.EmailServer.Length == 0 || draft.EmailServer.IndexOfAny(new char[] { ' ', '/', ':' }) >= 0))
-                    return Invalid(txtEmailServer, "请输入 IMAP 服务器域名");
-                if (draft.EmailEnabled && draft.EmailAccount.Length == 0) return Invalid(txtEmailAccount, "启用接收前请填写邮箱账号");
-                if (draft.EmailEnabled && draft.EmailAuth.Length == 0) return Invalid(Find<StackPanel>((FrameworkElement)Content, "emailAuthHost"), "启用接收前请填写授权码");
-                if (draft.EmailAuth.Length > 0) draft.EmailPasswordRequired = false;
-            }
-            if (Includes(section, SettingsSection.EmailRules))
-            {
-                if (!ReadNumber(txtEmailPoll, "邮箱检查间隔", 10, 600, out draft.EmailPollSeconds)) return false;
-                string error;
-                if (!MailRules.NormalizeLines(txtEmailKeywords.Text, out draft.EmailKeywords, out error)) return Invalid(txtEmailKeywords, error);
-                if (!MailRules.NormalizeSenders(txtEmailSenders.Text, out draft.EmailSenders, out error)) return Invalid(txtEmailSenders, error);
-                draft.EmailCheckJunk = chkEmailJunk.IsChecked == true; draft.EmailNotify = chkEmailNotify.IsChecked == true;
-                draft.EmailAutoCopy = chkEmailAutoCopy.IsChecked == true; draft.EmailSaveBody = chkEmailSaveBody.IsChecked == true;
-                draft.QqPopupEnabled = chkQqPopup.IsChecked == true;
-            }
+            if (!emailPage.ReadDraft(section, draft, Invalid)) return false;
             if (Includes(section, SettingsSection.Privacy))
             { draft.PrivacyMode = cmbPrivacy.SelectedIndex; draft.EmailPrivacyMode = cmbEmailPrivacy.SelectedIndex; draft.AutoLockEnabled = chkAutoLock.IsChecked == true; }
             if (Includes(section, SettingsSection.Retention)
-                && !ReadNumber(txtHistoryRetention, "记录保留分钟数", 0, Config.MaximumHistoryRetentionMinutes, out draft.HistoryRetentionMinutes)) return false;
+                && !ReadNumber(txtHistoryRetention, "记录保留分钟数", "history_retention_minutes", out draft.HistoryRetentionMinutes)) return false;
             foreach (SettingsSection part in new SettingsSection[] { SettingsSection.Sms, SettingsSection.SmsRules, SettingsSection.Ntfy,
                 SettingsSection.Email, SettingsSection.EmailRules, SettingsSection.Privacy, SettingsSection.Retention })
                 if (Includes(section, part)) sectionErrors.Remove(part);
@@ -176,8 +155,7 @@ namespace Codepass
                 if (result.Error != null) { RecordSaveFailure(result.Section, result.Error); continue; }
                 foreach (SettingsSection part in AtomicSections) if (Includes(result.Section, part)) sectionErrors.Remove(part);
                 settingsRecoveryRequired = sectionErrors.Count > 0;
-                if (Includes(result.Section, SettingsSection.Email)) emailConnectionDirty = !EmailDraftMatchesSaved();
-                UpdateEmailAuthHint(); UpdateEmailStatus();
+                emailPage.RefreshHints(); UpdateEmailStatus();
                 if (result.Section != SettingsSection.Window) SettingsFeedback(result.Restart ? "已保存 · 短信连接配置待重启生效" : "已保存并生效", false);
             }
         }
@@ -222,8 +200,7 @@ namespace Codepass
                 { SettingsFeedback("本区与已保存设置一致", false); return true; }
                 CommitDraft(section, draft);
                 settingsRecoveryRequired = false;
-                if (Includes(section, SettingsSection.Email)) emailConnectionDirty = !EmailDraftMatchesSaved();
-                UpdateEmailAuthHint(); UpdateEmailStatus();
+                emailPage.RefreshHints(); UpdateEmailStatus();
                 SettingsFeedback(NetworkSignature(cfg) != initialNetworkSignature ? "已保存 · 短信连接配置待重启生效" : "已保存并生效", false);
                 return true;
             }
@@ -235,19 +212,13 @@ namespace Codepass
             finally { applying = false; }
         }
         static string NetworkSignature(Config c) { return MessageIdentity.Hash(c.Port + "\n" + c.PcIp + "\n" + c.Token + "\n" + c.NtfyServer + "\n" + c.NtfyTopic + "\n" + c.NtfyToken); }
-        bool EmailDraftMatchesSaved()
-        {
-            return txtEmailServer.Text.Trim() == cfg.EmailServer && txtEmailAccount.Text.Trim() == cfg.EmailAccount
-                && fldEmailAuth.Text.Trim() == cfg.EmailAuth && (chkEmail.IsChecked == true) == cfg.EmailEnabled;
-        }
         SettingsSection SectionFor(FrameworkElement field)
         {
             if (field == txtHistoryRetention) return SettingsSection.Retention;
             if (field == txtPort || field == txtPcIp || field == chkStartup) return SettingsSection.Sms;
             if (field == txtNtfyServer || field == txtNtfyTopic) return SettingsSection.Ntfy;
-            if (field == txtEmailServer || field == txtEmailAccount || field == chkEmail || field == cmbEmailProvider || field.Name == "emailAuthHost") return SettingsSection.Email;
-            if (field == txtEmailPoll || field == txtEmailKeywords || field == txtEmailSenders || field == chkEmailJunk
-                || field == chkEmailNotify || field == chkEmailAutoCopy || field == chkEmailSaveBody || field == chkQqPopup) return SettingsSection.EmailRules;
+            SettingsSection emailSection = emailPage.SectionFor(field);
+            if (emailSection != 0) return emailSection;
             if (field == cmbPrivacy || field == cmbEmailPrivacy || field == chkAutoLock) return SettingsSection.Privacy;
             return SettingsSection.SmsRules;
         }

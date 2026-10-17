@@ -13,7 +13,7 @@ namespace Codepass
 {
     sealed partial class MainWindow
     {
-        int emailDraftVersion, networkDraftVersion;
+        int networkDraftVersion;
         CancellationTokenSource pcTestCancel, ntfyTestCancel;
         DispatcherTimer historyRefreshTimer;
         bool historyDirty, searchChanged;
@@ -26,13 +26,11 @@ namespace Codepass
         {
             initialNetworkSignature = NetworkSignature(cfg);
             Wire(root, "btnMax", delegate { ToggleMaximize(); });
-            Wire(root, "btnEmailSave", delegate { QueueSection(SettingsSection.Email); });
             Wire(root, "btnCopyLatest", delegate { if (lockOverlay.Visibility != Visibility.Visible) Program.CopyLatestCode(); });
             Wire(root, "btnNewRecords", delegate { RefreshHistory(); historyScroll.ScrollToTop(); Find<Button>(root, "btnNewRecords").Visibility = Visibility.Collapsed; });
             Wire(root, "btnDisableLock", delegate { DisablePasswordLock(); });
             Wire(root, "btnWebhook", delegate { ShowWebhookGuide(); });
             Wire(root, "btnTestSms", delegate { SimulateTestMessage(false); });
-            Wire(root, "btnTestEmail", delegate { SimulateTestMessage(true); });
             PreviewKeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (lockOverlay.Visibility == Visibility.Visible) return;
@@ -47,9 +45,6 @@ namespace Codepass
                 if (!IsVisible) ReleaseHiddenResources();
                 else if (historyDirty && activeSection == "history") RefreshHistory();
             };
-            foreach (TextBox box in new TextBox[] { txtEmailServer, txtEmailAccount })
-                box.TextChanged += delegate { InvalidateEmailTest(); };
-            fldEmailAuth.Changed += InvalidateEmailTest;
             foreach (TextBox box in new TextBox[] { txtPort, txtPcIp, txtNtfyServer, txtNtfyTopic })
                 box.TextChanged += delegate { InvalidateNetworkTests(); };
             fldToken.Changed += InvalidateNetworkTests; fldNtfyToken.Changed += InvalidateNetworkTests;
@@ -88,15 +83,6 @@ namespace Codepass
                 ShowToast("测试信息失败：" + error.Message);
             }
         }
-        void InvalidateEmailTest()
-        {
-            if (loadingValues) return;
-            emailConnectionDirty = !EmailDraftMatchesSaved();
-            emailDraftVersion++;
-            if (emailTestCancel != null) emailTestCancel.Cancel();
-            if (lblEmailTestResult != null) lblEmailTestResult.Text = "连接草稿已修改；请重新测试并保存";
-            SettingsFeedback("邮箱连接尚未保存 · 可先测试，再保存连接", false);
-        }
         void InvalidateNetworkTests()
         {
             if (loadingValues) return;
@@ -110,8 +96,8 @@ namespace Codepass
         }
         void CancelConnectionTests()
         {
-            emailDraftVersion++; networkDraftVersion++;
-            if (emailTestCancel != null) emailTestCancel.Cancel();
+            networkDraftVersion++;
+            if (emailPage != null) emailPage.CancelTests();
             if (pcTestCancel != null) pcTestCancel.Cancel();
             if (ntfyTestCancel != null) ntfyTestCancel.Cancel();
         }

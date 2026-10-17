@@ -41,9 +41,7 @@ namespace Codepass
               SetCardState(cardNetwork, general);
               SetCardState(cardNtfy, general);
               SetCardState(cardSmsFilters, general);
-               SetCardState(cardEmail, email);
-               SetCardState(cardEmailFilters, email);
-               SetCardState(cardQqPopup, email);
+                emailPage.SetVisible(email);
               SetCardState(cardNotify, security);
               SetCardState(cardSecurity, security);
               SetCardState(cardMore, general);
@@ -55,7 +53,7 @@ namespace Codepass
                if (general || email || security)
                {
                    if (settingsScroll != null) settingsScroll.ScrollToTop();
-                    Border target = security ? cardNotify : email ? cardEmail : cardGeneral;
+                     Border target = security ? cardNotify : email ? emailPage.Anchor : cardGeneral;
                    if (target != null) target.BringIntoView();
                }
                if (history) RefreshHistory();
@@ -97,34 +95,8 @@ namespace Codepass
                   if (txtFilterRegex != null) txtFilterRegex.Text = cfg.FilterRegex;
                   if (txtAcceptKeywords != null) txtAcceptKeywords.Text = cfg.SmsAcceptKeywords;
                   RenderAcceptKeywordTags();
-                  if (txtEmailServer != null)
-                  {
-                      txtEmailServer.Text = cfg.EmailServer;
-                      txtEmailAccount.Text = cfg.EmailAccount;
-                       if (fldEmailAuth != null) fldEmailAuth.Text = cfg.EmailAuth;
-                      txtEmailPoll.Text = cfg.EmailPollSeconds.ToString();
-                      txtEmailKeywords.Text = cfg.EmailKeywords;
-                      txtEmailSenders.Text = cfg.EmailSenders;
-                  }
-                  if (chkEmail != null)
-                  {
-                      chkEmail.IsChecked = cfg.EmailEnabled;
-                      chkEmailJunk.IsChecked = cfg.EmailCheckJunk;
-                      chkEmailNotify.IsChecked = cfg.EmailNotify;
-                       chkEmailAutoCopy.IsChecked = cfg.EmailAutoCopy;
-                       chkEmailSaveBody.IsChecked = cfg.EmailSaveBody;
-                      chkQqPopup.IsChecked = cfg.QqPopupEnabled;
-                  }
-                  if (cmbEmailProvider != null)
-                      cmbEmailProvider.SelectedIndex = EmailProviderIndexOf(cfg.EmailServer);
-                  if (cfg.EmailAuthUndecryptable && !warnedEmailAuthUndecryptable)
-                  {
-                      warnedEmailAuthUndecryptable = true;
-                      ShowToast("邮箱授权码已失效（换机或换了 Windows 账户），请重新填写");
-                  }
-                   UpdateEmailAuthHint();
-                    RenderEmailKeywordTags();
-                    UpdateEmailStatus();
+                   emailPage.Load();
+                   UpdateEmailStatus();
                   chkTip.IsChecked = cfg.ShowTip;
                  if (chkStartup != null) chkStartup.IsChecked = cfg.StartWithWindows;
                   if (cmbPrivacy != null) cmbPrivacy.SelectedIndex = cfg.PrivacyMode < 0 || cfg.PrivacyMode > 2 ? 0 : cfg.PrivacyMode;

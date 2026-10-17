@@ -279,13 +279,14 @@ Assert 'history:show-from-tray-keeps-handle' ((New-Object Windows.Interop.Window
 Assert 'history:non-history-page-defers-rebuild' ($list.Children.Count -eq 0 -and $windowType.GetField('historyDirty',$flags).GetValue($window))
 [void](Call $windowType 'SelectSection' $window @('history'))
 Assert 'history:show-from-tray-rebuilds-list' ($list.Children.Count -gt 0 -and $windowType.GetField('historyDirty',$flags).GetValue($window) -eq $false)
-$field=$windowType.GetField('fldEmailAuth',$flags).GetValue($window)
+$emailPage=$windowType.GetField('emailPage',$flags).GetValue($window);$emailPageType=$emailPage.GetType()
+$field=$emailPageType.GetField('fldEmailAuth',$flags).GetValue($emailPage)
 $secret=$field.GetType();$field.Text='synthetic-auth'
-$version=$windowType.GetField('emailDraftVersion',$flags).GetValue($window)
+$version=$emailPageType.GetField('emailDraftVersion',$flags).GetValue($emailPage)
 $toggle=$secret.GetField('toggle',$flags).GetValue($field)
 $toggle.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
 $toggle.RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
-Assert 'secret:show-hide-does-not-change-draft' ($version -eq $windowType.GetField('emailDraftVersion',$flags).GetValue($window))
+Assert 'secret:show-hide-does-not-change-draft' ($version -eq $emailPageType.GetField('emailDraftVersion',$flags).GetValue($emailPage))
 $content.FindName('txtEmailAccount').Text='unsaved@example.invalid'
 $content.FindName('cmbPrivacy').SelectedIndex=0
 [void](Call $windowType 'FlushSettings' $window @())

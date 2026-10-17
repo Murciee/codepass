@@ -432,7 +432,8 @@ foreach($size in @(640,780,1100,1280)) {
     $content.FindName('btnEmailKeywordAdd').RaiseEvent((New-Object Windows.RoutedEventArgs([Windows.Controls.Button]::ClickEvent)))
     Assert ('cards:keyword-input-shown-on-add-'+$size) ($keywordInput.Visibility -eq [Windows.Visibility]::Visible)
     $keywordInput.Visibility=[Windows.Visibility]::Collapsed
-    $secret=$windowType.GetField('fldEmailAuth',$flags).GetValue($window)
+    $emailPage=$windowType.GetField('emailPage',$flags).GetValue($window)
+    $secret=$emailPage.GetType().GetField('fldEmailAuth',$flags).GetValue($emailPage)
     if($size -eq 1100) { CheckRevealInput $secret 'reveal:email' }
     $masked=$secret.GetType().GetField('masked',$flags).GetValue($secret)
     $addon=[Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent([Windows.LogicalTreeHelper]::GetParent($masked)))

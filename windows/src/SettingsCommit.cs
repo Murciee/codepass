@@ -20,16 +20,9 @@ namespace Codepass
         internal static void Merge(Config target, Config draft, SettingsSection section)
         {
             if ((section & SettingsSection.Sms) != 0)
-            { target.Port = draft.Port; target.PcIp = draft.PcIp; target.Token = draft.Token; target.StartWithWindows = draft.StartWithWindows; }
-            if ((section & SettingsSection.SmsRules) != 0)
-            {
-                target.MinLen = draft.MinLen; target.MaxLen = draft.MaxLen; target.SmsMaxLength = draft.SmsMaxLength;
-                target.AutoClearSeconds = draft.AutoClearSeconds; target.ShowTip = draft.ShowTip;
-                target.FilterKeywords = draft.FilterKeywords; target.FilterRegex = draft.FilterRegex;
-                target.SmsAcceptKeywords = draft.SmsAcceptKeywords;
-            }
+                target.Token = draft.Token;
             if ((section & SettingsSection.Ntfy) != 0)
-            { target.NtfyServer = draft.NtfyServer; target.NtfyTopic = draft.NtfyTopic; target.NtfyToken = draft.NtfyToken; }
+            { target.NtfyTopic = draft.NtfyTopic; target.NtfyToken = draft.NtfyToken; }
             if ((section & SettingsSection.Email) != 0)
             {
                 bool changed = !string.Equals(target.EmailServer, draft.EmailServer, StringComparison.OrdinalIgnoreCase)
@@ -40,21 +33,13 @@ namespace Codepass
                     target.EmailLastUid = target.EmailLastUidJunk = target.EmailUidValidity = target.EmailUidValidityJunk = 0;
                     target.EmailAuthEncRaw = ""; target.EmailAuthUndecryptable = false;
                 }
-                target.EmailServer = draft.EmailServer; target.EmailAccount = draft.EmailAccount;
-                target.EmailAuth = draft.EmailAuth; target.EmailEnabled = draft.EmailEnabled;
+                target.EmailAuth = draft.EmailAuth;
                 if (draft.EmailAuth.Length > 0)
                 { target.EmailPasswordRequired = false; target.EmailAuthEncRaw = ""; target.EmailAuthUndecryptable = false; }
             }
-            if ((section & SettingsSection.EmailRules) != 0)
-            {
-                target.EmailKeywords = draft.EmailKeywords; target.EmailSenders = draft.EmailSenders;
-                target.EmailPollSeconds = draft.EmailPollSeconds; target.EmailCheckJunk = draft.EmailCheckJunk;
-                target.EmailNotify = draft.EmailNotify; target.EmailAutoCopy = draft.EmailAutoCopy;
-                target.EmailSaveBody = draft.EmailSaveBody; target.QqPopupEnabled = draft.QqPopupEnabled;
-            }
+            ConfigSettings.Merge(target, draft, section);
             if ((section & SettingsSection.Privacy) != 0)
-            { target.PrivacyMode = draft.PrivacyMode; target.EmailPrivacyMode = draft.EmailPrivacyMode; target.AutoLockEnabled = target.LockEnabled && draft.AutoLockEnabled; }
-            if ((section & SettingsSection.Retention) != 0) target.HistoryRetentionMinutes = draft.HistoryRetentionMinutes;
+                target.AutoLockEnabled = target.LockEnabled && draft.AutoLockEnabled;
             if ((section & SettingsSection.Window) != 0)
             {
                 target.WindowWidth = draft.WindowWidth; target.WindowHeight = draft.WindowHeight;

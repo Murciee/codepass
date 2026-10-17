@@ -239,9 +239,7 @@ namespace Codepass
                     Log.Write("email folders error category=" + FailureCategory(ex));
                     FolderState(gen, SnapshotConfig(), "检查失败，正在重试（" + FailureCategory(ex) + "）", false);
                 }
-                int seconds = Program.cfg.EmailPollSeconds;
-                if (seconds < 10) seconds = 10;
-                if (seconds > 600) seconds = 600;
+                int seconds = ConfigSettings.Clamp("email_poll_seconds", Program.cfg.EmailPollSeconds);
                 if (folderFailures > 0) seconds = Math.Max(seconds, Math.Min(60, 5 * folderFailures));
                 junkWake.Wait(seconds * 1000);
                 junkWake.Reset();
@@ -378,9 +376,7 @@ namespace Codepass
         {
             while (GenAlive(gen, false) && Program.Running && Program.EmailConfigured())
             {
-                int seconds = Program.cfg.EmailPollSeconds;
-                if (seconds < 10) seconds = 10;
-                if (seconds > 600) seconds = 600;
+                int seconds = ConfigSettings.Clamp("email_poll_seconds", Program.cfg.EmailPollSeconds);
                 bool kicked = wake.Wait(seconds * 1000);
                 wake.Reset();
                 if (!GenAlive(gen, false) || !Program.EmailConfigured()) break;
@@ -466,7 +462,7 @@ namespace Codepass
                     else imap.Noop();
                     CheckReceiveFolders(imap, gen, cfg, folders);
                     folderFailures = 0;
-                    int seconds = Math.Max(10, Math.Min(600, cfg.EmailPollSeconds));
+                    int seconds = ConfigSettings.Clamp("email_poll_seconds", cfg.EmailPollSeconds);
                     junkWake.Wait(seconds * 1000); junkWake.Reset();
                 }
             }
